@@ -1,21 +1,28 @@
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
+from app.models.signal import Signal
 from app.models.user import User
 from app.repositories.button_repo import ButtonRepository
+from app.repositories.couple_repo import CoupleRepository
+from app.services.connection_manager import manager
+from app.services.fcm_service import send_fcm_notification
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/media", tags=["media"])
 
-VIDEOS_DIR = Path("/app/data/videos")
-IMAGES_DIR = Path("/app/data/images")
+VIDEOS_DIR  = Path("/app/data/videos")
+IMAGES_DIR  = Path("/app/data/images")
+REPLIES_DIR = Path("/app/data/replies")
 ALLOWED_EXTENSIONS = {".mp4", ".webm"}
 ALLOWED_IMAGE_EXTENSIONS = {".gif", ".png", ".jpg", ".jpeg", ".webp"}
 MAX_VIDEO_BYTES = 50 * 1024 * 1024   # 50 MB
@@ -142,6 +149,77 @@ async def serve_image(button_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     mime_map = {".gif": "image/gif", ".png": "image/png", ".jpg": "image/jpeg",
                 ".jpeg": "image/jpeg", ".webp": "image/webp"}
     return FileResponse(str(path), media_type=mime_map.get(suffix, "image/gif"))
+
+
+@router.post("/signal/{signal_id}/reply")
+async def upload_signal_reply(
+    signal_id: uuid.UUID,
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Signal).where(Signal.id == signal_id))
+    sig = result.scalar_one_or_none()
+    if not sig:
+        raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
+    if sig.receiver_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail={"error": "FORBIDDEN"})
+
+    suffix = Path(file.filename or "reply.mp4").suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail={"error": "INVALID_FORMAT"})
+
+    content = await file.read()
+    if len(content) > MAX_VIDEO_BYTES:
+        raise HTTPException(status_code=400, detail={"error": "FILE_TOO_LARGE"})
+
+    REPLIES_DIR.mkdir(parents=True, exist_ok=True)
+    file_path = REPLIES_DIR / f"{signal_id}{suffix}"
+    file_path.write_bytes(content)
+
+    proto = request.headers.get("x-forwarded-proto", "https")
+    host  = request.headers.get("x-forwarded-host", "") or request.headers.get("host", "")
+    base  = f"{proto}://{host}" if host else str(request.base_url).rstrip("/")
+    reply_url = f"{base}/api/v1/media/signal/{signal_id}/reply"
+
+    sig.video_reply_url = reply_url
+    await db.commit()
+
+    # Notify original sender
+    payload = {
+        "type": "signal_reply",
+        "signal_id": str(signal_id),
+        "from_name": current_user.name,
+        "video_url": reply_url,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    if not await manager.send_to_user(sig.sender_id, payload):
+        sender_r = await db.execute(select(User).where(User.user_id == sig.sender_id))
+        sender = sender_r.scalar_one_or_none()
+        if sender and sender.fcm_token:
+            await send_fcm_notification(
+                sender.fcm_token,
+                current_user.name,
+                button_label="📹 respondió a tu señal",
+                video_url=reply_url,
+                bg_color="",
+                duration_seconds=0,
+                button_type="video",
+            )
+
+    logger.info("signal_reply_uploaded", signal_id=str(signal_id), bytes=len(content))
+    return {"video_url": reply_url}
+
+
+@router.get("/signal/{signal_id}/reply")
+async def serve_signal_reply(signal_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    for ext in ALLOWED_EXTENSIONS:
+        path = REPLIES_DIR / f"{signal_id}{ext}"
+        if path.exists():
+            media_type = "video/webm" if ext == ".webm" else "video/mp4"
+            return FileResponse(str(path), media_type=media_type)
+    raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
 
 
 @router.delete("/video/{button_id}", status_code=status.HTTP_204_NO_CONTENT)

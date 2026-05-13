@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 import structlog
@@ -10,11 +11,12 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.v1 import auth, button, couple, gallery, media, signal, trigger, watch, websocket
+from app.api.v1 import auth, button, couple, gallery, media, scheduled_signals, signal, trigger, watch, websocket
 from app.core.middleware import RequestLoggingMiddleware
 from app.core.rate_limiter import limiter
 from app.db.init_db import init_db
 from app.services.fcm_service import init_firebase
+from app.services.scheduler import scheduled_signals_worker
 
 logger = structlog.get_logger()
 
@@ -24,8 +26,10 @@ async def lifespan(app: FastAPI):
     logger.info("heartbeat_starting")
     await init_db()
     init_firebase()
+    worker_task = asyncio.create_task(scheduled_signals_worker())
     logger.info("heartbeat_ready")
     yield
+    worker_task.cancel()
     logger.info("heartbeat_shutdown")
 
 
@@ -103,6 +107,7 @@ app.include_router(trigger.router, prefix="/api/v1")
 app.include_router(button.router, prefix="/api/v1")
 app.include_router(gallery.router, prefix="/api/v1")
 app.include_router(signal.router, prefix="/api/v1")
+app.include_router(scheduled_signals.router, prefix="/api/v1")
 app.include_router(watch.router, prefix="/api/v1")
 app.include_router(websocket.router)
 
