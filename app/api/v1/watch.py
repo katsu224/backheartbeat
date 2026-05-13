@@ -142,6 +142,20 @@ async def add_clip(
     )
 
 
+@router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_room(
+    room_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    room = await _get_room_or_raise(db, room_id)
+    couple = await CoupleRepository(db).get_by_user_id(current_user.user_id)
+    if not couple or couple.couple_id != room.couple_id:
+        raise HTTPException(status_code=403, detail={"error": "FORBIDDEN"})
+    await db.delete(room)
+    await db.commit()
+
+
 @router.get("/{room_id}/clips", response_model=ClipsResponse)
 async def list_clips(
     room_id: uuid.UUID,
