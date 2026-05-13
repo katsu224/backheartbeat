@@ -21,6 +21,7 @@ def _to_response(b) -> ButtonResponse:
         label=b.label,
         video_url=b.video_url,
         bg_color=b.bg_color,
+        button_type=b.button_type,
     )
 
 
@@ -63,6 +64,7 @@ async def create_button(
         couple_id=couple.couple_id,
         owner_user_id=current_user.user_id,
         label=body.label,
+        button_type=body.button_type,
     )
     await db.commit()
     return _to_response(button)

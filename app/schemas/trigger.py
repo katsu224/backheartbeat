@@ -12,6 +12,7 @@ class TriggerResponse(BaseModel):
 
 class ButtonCreate(BaseModel):
     label: str = Field(..., min_length=1, max_length=100, examples=["Te extraño 💭"])
+    button_type: str = "text"
 
 
 class ButtonUpdate(BaseModel):
@@ -24,6 +25,7 @@ class ButtonResponse(BaseModel):
     label: str
     video_url: str | None = None
     bg_color: str | None = None
+    button_type: str = "text"
 
 
 class ButtonListResponse(BaseModel):

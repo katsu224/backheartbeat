@@ -24,6 +24,7 @@ class Button(Base):
     video_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     video_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     bg_color: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    button_type: Mapped[str] = mapped_column(String(10), nullable=False, default="text")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

@@ -49,7 +49,10 @@ async def send_trigger(
             if btn and btn.owner_user_id == current_user.user_id:
                 button_label = btn.label
                 if btn.video_url:
-                    base = str(request.base_url).rstrip("/")
+                    # Respect reverse-proxy headers so the URL is always HTTPS
+                    proto = request.headers.get("x-forwarded-proto", "https")
+                    host = request.headers.get("x-forwarded-host", "") or request.headers.get("host", "")
+                    base = f"{proto}://{host}" if host else str(request.base_url).rstrip("/")
                     video_url = f"{base}{btn.video_url}"
                 bg_color = btn.bg_color or ""
         except (ValueError, AttributeError):

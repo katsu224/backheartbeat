@@ -15,8 +15,14 @@ class ButtonRepository:
         couple_id: uuid.UUID,
         owner_user_id: uuid.UUID,
         label: str,
+        button_type: str = "text",
     ) -> Button:
-        button = Button(couple_id=couple_id, owner_user_id=owner_user_id, label=label)
+        button = Button(
+            couple_id=couple_id,
+            owner_user_id=owner_user_id,
+            label=label,
+            button_type=button_type,
+        )
         self.db.add(button)
         await self.db.flush()
         await self.db.refresh(button)
