@@ -6,6 +6,7 @@ from app.core.rate_limiter import limiter
 from app.db.session import get_db
 from app.models.user import User
 from app.repositories.couple_repo import CoupleRepository
+from app.repositories.pairing_request_repo import PairingRequestRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import (
     JoinCoupleRequest,
@@ -13,6 +14,7 @@ from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
     MeResponse,
+    PendingRequestInfo,
     RefreshFCMRequest,
     RegisterRequest,
     RegisterResponse,
@@ -99,6 +101,8 @@ async def get_me(
     pairing_code: str | None = None
     is_paired = False
 
+    pending_request: PendingRequestInfo | None = None
+
     if couple and couple.is_complete:
         is_paired = True
         couple_id = str(couple.couple_id)
@@ -112,9 +116,21 @@ async def get_me(
             if partner:
                 partner_name = partner.name
     else:
-        pending = await couple_repo.get_pending_by_user_id(current_user.user_id)
-        if pending:
-            pairing_code = pending.pairing_code
+        pending_couple = await couple_repo.get_pending_by_user_id(current_user.user_id)
+        if pending_couple:
+            pairing_code = pending_couple.pairing_code
+
+        # Check for incoming pairing request (someone wants to link with this user)
+        req_repo = PairingRequestRepository(db)
+        incoming = await req_repo.get_latest_pending_for_target(current_user.user_id)
+        if incoming:
+            from_user = await UserRepository(db).get_by_id(incoming.from_user_id)
+            if from_user:
+                pending_request = PendingRequestInfo(
+                    request_id=str(incoming.request_id),
+                    from_name=from_user.name,
+                    from_username=from_user.username,
+                )
 
     return MeResponse(
         user_id=str(current_user.user_id),
@@ -124,4 +140,5 @@ async def get_me(
         partner_name=partner_name,
         is_paired=is_paired,
         pairing_code=pairing_code,
+        pending_request=pending_request,
     )

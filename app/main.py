@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.v1 import auth, button, trigger, websocket
+from app.api.v1 import auth, button, couple, trigger, websocket
 from app.core.middleware import RequestLoggingMiddleware
 from app.core.rate_limiter import limiter
 from app.db.init_db import init_db
@@ -97,6 +97,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(couple.router, prefix="/api/v1")
 app.include_router(trigger.router, prefix="/api/v1")
 app.include_router(button.router, prefix="/api/v1")
 app.include_router(websocket.router)

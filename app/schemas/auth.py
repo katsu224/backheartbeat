@@ -43,6 +43,12 @@ class JoinCoupleResponse(BaseModel):
     partner_name: str
 
 
+class PendingRequestInfo(BaseModel):
+    request_id: str
+    from_name: str
+    from_username: str
+
+
 class MeResponse(BaseModel):
     user_id: str
     username: str
@@ -51,3 +57,4 @@ class MeResponse(BaseModel):
     partner_name: str | None
     is_paired: bool
     pairing_code: str | None
+    pending_request: PendingRequestInfo | None = None
