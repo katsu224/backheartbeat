@@ -72,7 +72,7 @@ async def send_trigger(
 
     duration_seconds = body.duration_seconds if body else 0
 
-    # Persist to signal history
+    # Persist to signal history (commit before delivery so it's always saved)
     db.add(Signal(
         sender_id=current_user.user_id,
         receiver_id=partner_id,
@@ -80,6 +80,8 @@ async def send_trigger(
         button_type=button_type,
         bg_color=bg_color or None,
     ))
+    await db.flush()
+    await db.commit()
 
     payload = {
         "type": "incoming_trigger",
