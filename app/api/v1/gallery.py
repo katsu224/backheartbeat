@@ -32,54 +32,44 @@ def _map(items: list) -> list:
     return results
 
 
-@router.get("/stickers/trending")
-async def trending_stickers(
-    limit: int = Query(25, ge=1, le=50),
-    _: User = Depends(get_current_user),
-):
+async def _giphy_get(path: str, params: dict) -> list:
     if not settings.GIPHY_API_KEY:
         logger.warning("giphy_key_missing", hint="Set GIPHY_API_KEY in .env and restart")
-        return {"results": []}
+        return []
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(
-                f"{_GIPHY_BASE}/stickers/trending",
-                params={"api_key": settings.GIPHY_API_KEY, "limit": limit, "rating": "g"},
-            )
+            r = await client.get(f"{_GIPHY_BASE}{path}", params={"api_key": settings.GIPHY_API_KEY, **params})
             r.raise_for_status()
         data = r.json().get("data", [])
-        logger.info("giphy_trending_ok", count=len(data))
-        return {"results": _map(data)}
+        logger.info("giphy_ok", path=path, count=len(data))
+        return data
     except httpx.HTTPStatusError as exc:
         logger.error("giphy_http_error", status=exc.response.status_code, body=exc.response.text[:200])
         raise HTTPException(status_code=502, detail=f"Giphy error {exc.response.status_code}")
     except Exception as exc:
         logger.error("giphy_request_failed", error=str(exc))
         raise HTTPException(status_code=502, detail="No se pudo conectar a Giphy")
+
+
+# ── Stickers ──────────────────────────────────────────────────────────────────
+
+@router.get("/stickers/trending")
+async def trending_stickers(limit: int = Query(25, ge=1, le=50), _: User = Depends(get_current_user)):
+    return {"results": _map(await _giphy_get("/stickers/trending", {"limit": limit, "rating": "g"}))}
 
 
 @router.get("/stickers/search")
-async def search_stickers(
-    q: str = Query(..., min_length=1),
-    limit: int = Query(25, ge=1, le=50),
-    _: User = Depends(get_current_user),
-):
-    if not settings.GIPHY_API_KEY:
-        logger.warning("giphy_key_missing", hint="Set GIPHY_API_KEY in .env and restart")
-        return {"results": []}
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(
-                f"{_GIPHY_BASE}/stickers/search",
-                params={"api_key": settings.GIPHY_API_KEY, "q": q, "limit": limit, "rating": "g"},
-            )
-            r.raise_for_status()
-        data = r.json().get("data", [])
-        logger.info("giphy_search_ok", q=q, count=len(data))
-        return {"results": _map(data)}
-    except httpx.HTTPStatusError as exc:
-        logger.error("giphy_http_error", status=exc.response.status_code, body=exc.response.text[:200])
-        raise HTTPException(status_code=502, detail=f"Giphy error {exc.response.status_code}")
-    except Exception as exc:
-        logger.error("giphy_request_failed", error=str(exc))
-        raise HTTPException(status_code=502, detail="No se pudo conectar a Giphy")
+async def search_stickers(q: str = Query(..., min_length=1), limit: int = Query(25, ge=1, le=50), _: User = Depends(get_current_user)):
+    return {"results": _map(await _giphy_get("/stickers/search", {"q": q, "limit": limit, "rating": "g"}))}
+
+
+# ── GIFs ──────────────────────────────────────────────────────────────────────
+
+@router.get("/gifs/trending")
+async def trending_gifs(limit: int = Query(25, ge=1, le=50), _: User = Depends(get_current_user)):
+    return {"results": _map(await _giphy_get("/gifs/trending", {"limit": limit, "rating": "g"}))}
+
+
+@router.get("/gifs/search")
+async def search_gifs(q: str = Query(..., min_length=1), limit: int = Query(25, ge=1, le=50), _: User = Depends(get_current_user)):
+    return {"results": _map(await _giphy_get("/gifs/search", {"q": q, "limit": limit, "rating": "g"}))}

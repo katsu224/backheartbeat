@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 class TriggerBody(BaseModel):
     button_id: str | None = None
     duration_seconds: int = 0
+    label: str | None = None  # quick reaction label when no button_id
 
 
 class TriggerResponse(BaseModel):

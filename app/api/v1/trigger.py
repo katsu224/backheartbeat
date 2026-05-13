@@ -64,6 +64,11 @@ async def send_trigger(
         except (ValueError, AttributeError):
             pass
 
+    # Quick reaction: label provided directly without a button_id
+    if body and body.label and not body.button_id:
+        button_label = body.label
+        button_type = "text"
+
     duration_seconds = body.duration_seconds if body else 0
 
     payload = {
