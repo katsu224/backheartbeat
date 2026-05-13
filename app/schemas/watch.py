@@ -14,6 +14,19 @@ class RoomResponse(BaseModel):
     is_active: bool
 
 
+class RoomListItem(BaseModel):
+    room_id: str
+    video_id: str
+    video_title: str | None
+    host_name: str
+    is_active: bool
+    created_at: str
+
+
+class RoomsListResponse(BaseModel):
+    rooms: list[RoomListItem]
+
+
 class AddClipRequest(BaseModel):
     position_seconds: int
     label: str | None = None

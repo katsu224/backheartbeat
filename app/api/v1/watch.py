@@ -11,7 +11,7 @@ from app.models.watch_clip import WatchClip
 from app.models.watch_room import WatchRoom
 from app.repositories.couple_repo import CoupleRepository
 from app.repositories.user_repo import UserRepository
-from app.schemas.watch import AddClipRequest, ClipItem, ClipsResponse, CreateRoomRequest, RoomResponse
+from app.schemas.watch import AddClipRequest, ClipItem, ClipsResponse, CreateRoomRequest, RoomListItem, RoomResponse, RoomsListResponse
 
 router = APIRouter(prefix="/watch", tags=["watch"])
 
@@ -22,6 +22,42 @@ async def _get_room_or_raise(db: AsyncSession, room_id: uuid.UUID) -> WatchRoom:
     if not room:
         raise HTTPException(status_code=404, detail={"error": "ROOM_NOT_FOUND"})
     return room
+
+
+@router.get("/rooms", response_model=RoomsListResponse)
+async def list_rooms(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    couple = await CoupleRepository(db).get_by_user_id(current_user.user_id)
+    if not couple:
+        return RoomsListResponse(rooms=[])
+
+    result = await db.execute(
+        select(WatchRoom)
+        .where(WatchRoom.couple_id == couple.couple_id, WatchRoom.is_active.is_(True))
+        .order_by(WatchRoom.created_at.desc())
+        .limit(20)
+    )
+    rooms = result.scalars().all()
+
+    host_ids = {r.host_user_id for r in rooms}
+    name_map: dict = {}
+    if host_ids:
+        users_result = await db.execute(select(User).where(User.user_id.in_(host_ids)))
+        name_map = {u.user_id: u.name for u in users_result.scalars().all()}
+
+    return RoomsListResponse(rooms=[
+        RoomListItem(
+            room_id=str(r.room_id),
+            video_id=r.video_id,
+            video_title=r.video_title,
+            host_name=name_map.get(r.host_user_id, "?"),
+            is_active=r.is_active,
+            created_at=r.created_at.isoformat(),
+        )
+        for r in rooms
+    ])
 
 
 @router.post("/create", response_model=RoomResponse, status_code=status.HTTP_201_CREATED)
