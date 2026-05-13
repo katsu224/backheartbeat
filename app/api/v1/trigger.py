@@ -58,12 +58,15 @@ async def send_trigger(
         except (ValueError, AttributeError):
             pass
 
+    duration_seconds = body.duration_seconds if body else 0
+
     payload = {
         "type": "incoming_trigger",
         "from_name": current_user.name,
         "button_label": button_label,
         "video_url": video_url,
         "bg_color": bg_color,
+        "duration_seconds": duration_seconds,
         "message": button_label or "Tu pareja te envió una señal ❤️",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

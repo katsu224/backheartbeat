@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 class TriggerBody(BaseModel):
     button_id: str | None = None
+    duration_seconds: int = 0
 
 
 class TriggerResponse(BaseModel):
