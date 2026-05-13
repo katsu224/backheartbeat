@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_DAYS: int = 90
     FIREBASE_CREDENTIALS_PATH: str = "/app/firebase-credentials.json"
+    GIPHY_API_KEY: str = ""
 
     model_config = {"env_file": ".env", "case_sensitive": True}
 

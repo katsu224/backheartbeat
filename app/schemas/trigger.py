@@ -19,6 +19,7 @@ class ButtonCreate(BaseModel):
 class ButtonUpdate(BaseModel):
     label: str | None = Field(None, min_length=1, max_length=100)
     bg_color: str | None = None
+    video_url: str | None = None
 
 
 class ButtonResponse(BaseModel):

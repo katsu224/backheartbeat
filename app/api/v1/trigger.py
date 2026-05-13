@@ -42,18 +42,24 @@ async def send_trigger(
     button_label = ""
     video_url = ""
     bg_color = ""
+    button_type = "text"
 
     if body and body.button_id:
         try:
             btn = await ButtonRepository(db).get_by_id(uuid.UUID(body.button_id))
             if btn and btn.owner_user_id == current_user.user_id:
                 button_label = btn.label
+                button_type = btn.button_type
                 if btn.video_url:
-                    # Respect reverse-proxy headers so the URL is always HTTPS
-                    proto = request.headers.get("x-forwarded-proto", "https")
-                    host = request.headers.get("x-forwarded-host", "") or request.headers.get("host", "")
-                    base = f"{proto}://{host}" if host else str(request.base_url).rstrip("/")
-                    video_url = f"{base}{btn.video_url}"
+                    if btn.video_url.startswith("http"):
+                        # External URL (Giphy sticker) — use as-is
+                        video_url = btn.video_url
+                    else:
+                        # Local file — prepend reverse-proxy base URL
+                        proto = request.headers.get("x-forwarded-proto", "https")
+                        host = request.headers.get("x-forwarded-host", "") or request.headers.get("host", "")
+                        base = f"{proto}://{host}" if host else str(request.base_url).rstrip("/")
+                        video_url = f"{base}{btn.video_url}"
                 bg_color = btn.bg_color or ""
         except (ValueError, AttributeError):
             pass
@@ -67,6 +73,7 @@ async def send_trigger(
         "video_url": video_url,
         "bg_color": bg_color,
         "duration_seconds": duration_seconds,
+        "button_type": button_type,
         "message": button_label or "Tu pareja te envió una señal ❤️",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
@@ -84,6 +91,7 @@ async def send_trigger(
             video_url=video_url,
             bg_color=bg_color,
             duration_seconds=duration_seconds,
+            button_type=button_type,
         ):
             logger.info("trigger_fcm", from_user=str(current_user.user_id), to_user=str(partner_id))
             return TriggerResponse(delivered=True, method="fcm")

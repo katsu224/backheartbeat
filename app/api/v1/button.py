@@ -96,6 +96,8 @@ async def update_button(
         button.label = body.label
     if body.bg_color is not None:
         button.bg_color = body.bg_color if body.bg_color != "" else None
+    if body.video_url is not None:
+        button.video_url = body.video_url if body.video_url != "" else None
     await db.commit()
     await db.refresh(button)
     return _to_response(button)

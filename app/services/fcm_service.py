@@ -38,6 +38,7 @@ async def send_fcm_notification(
     video_url: str = "",
     bg_color: str = "",
     duration_seconds: int = 0,
+    button_type: str = "text",
 ) -> bool:
     if not _initialized:
         logger.warning("fcm_not_initialized")
@@ -54,6 +55,7 @@ async def send_fcm_notification(
                 "video_url": video_url,
                 "bg_color": bg_color,
                 "duration_seconds": str(duration_seconds),
+                "button_type": button_type,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
             token=fcm_token,
