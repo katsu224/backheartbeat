@@ -103,6 +103,7 @@ async def get_me(
 
     pending_request: PendingRequestInfo | None = None
 
+    partner_user_id: str | None = None
     if couple and couple.is_complete:
         is_paired = True
         couple_id = str(couple.couple_id)
@@ -112,6 +113,7 @@ async def get_me(
             else couple.user_a_id
         )
         if partner_id:
+            partner_user_id = str(partner_id)
             partner = await UserRepository(db).get_by_id(partner_id)
             if partner:
                 partner_name = partner.name
@@ -138,6 +140,7 @@ async def get_me(
         name=current_user.name,
         couple_id=couple_id,
         partner_name=partner_name,
+        partner_user_id=partner_user_id,
         is_paired=is_paired,
         pairing_code=pairing_code,
         pending_request=pending_request,

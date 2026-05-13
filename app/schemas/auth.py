@@ -55,6 +55,7 @@ class MeResponse(BaseModel):
     name: str
     couple_id: str | None
     partner_name: str | None
+    partner_user_id: str | None = None
     is_paired: bool
     pairing_code: str | None
     pending_request: PendingRequestInfo | None = None
