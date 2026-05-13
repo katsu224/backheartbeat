@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
+from app.models.signal import Signal
 from app.repositories.button_repo import ButtonRepository
 from app.repositories.couple_repo import CoupleRepository
 from app.repositories.user_repo import UserRepository
@@ -70,6 +71,15 @@ async def send_trigger(
         button_type = "text"
 
     duration_seconds = body.duration_seconds if body else 0
+
+    # Persist to signal history
+    db.add(Signal(
+        sender_id=current_user.user_id,
+        receiver_id=partner_id,
+        button_label=button_label or None,
+        button_type=button_type,
+        bg_color=bg_color or None,
+    ))
 
     payload = {
         "type": "incoming_trigger",
