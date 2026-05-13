@@ -1,0 +1,41 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy via SSH
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /www/wwwroot/heartbeat-backend
+
+            echo "==> Pulling latest code..."
+            git pull origin main
+
+            echo "==> Rebuilding containers..."
+            docker compose down
+            docker compose build --no-cache
+            docker compose up -d
+
+            echo "==> Running migrations..."
+            docker compose exec -T api alembic upgrade head
+
+            echo "==> Verifying services..."
+            docker compose ps
+
+            echo "==> Deploy complete"
