@@ -1,6 +1,5 @@
 import random
 import string
-import uuid
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -10,6 +10,10 @@ logger = structlog.get_logger()
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
+        # BaseHTTPMiddleware buffers responses and breaks WebSocket upgrades
+        if request.headers.get("upgrade", "").lower() == "websocket":
+            return await call_next(request)
+
         start = time.perf_counter()
         response = await call_next(request)
         duration_ms = round((time.perf_counter() - start) * 1000, 2)

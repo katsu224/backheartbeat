@@ -26,10 +26,14 @@ def get_url() -> str:
     return settings.DATABASE_URL
 
 
+def get_sync_url() -> str:
+    # Offline mode cannot use asyncpg; use the standard psycopg2 dialect
+    return get_url().replace("postgresql+asyncpg", "postgresql")
+
+
 def run_migrations_offline() -> None:
-    url = get_url()
     context.configure(
-        url=url,
+        url=get_sync_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},

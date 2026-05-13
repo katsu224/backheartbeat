@@ -2,11 +2,13 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1 import auth, button, trigger, websocket
 from app.core.middleware import RequestLoggingMiddleware
@@ -40,6 +42,8 @@ app = FastAPI(
 app.state.limiter = limiter
 
 
+# --- Exception handlers ---
+
 def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
     return JSONResponse(
         status_code=429,
@@ -47,8 +51,40 @@ def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRespons
     )
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={"error": "VALIDATION_ERROR", "detail": exc.errors()},
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": "HTTP_ERROR", "message": exc.detail},
+    )
+
+
+@app.exception_handler(Exception)
+async def global_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    # StarletteHTTPException already handled above; this only fires for unexpected errors
+    if isinstance(exc, StarletteHTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": "HTTP_ERROR", "message": exc.detail},
+        )
+    logger.error("unhandled_error", path=request.url.path, error=str(exc), exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "INTERNAL_ERROR", "message": "Internal server error"},
+    )
+
+
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
+# Middleware stack (applied in reverse order: last added = outermost)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
@@ -69,12 +105,3 @@ app.include_router(websocket.router)
 @app.get("/health", tags=["health"])
 async def health():
     return {"status": "ok"}
-
-
-@app.exception_handler(Exception)
-async def global_error_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.error("unhandled_error", path=request.url.path, error=str(exc))
-    return JSONResponse(
-        status_code=500,
-        content={"error": "INTERNAL_ERROR", "message": "Internal server error"},
-    )
