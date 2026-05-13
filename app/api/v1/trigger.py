@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 import structlog
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -21,12 +21,12 @@ router = APIRouter(prefix="/trigger", tags=["trigger"])
 
 @router.post("/send", response_model=TriggerResponse)
 async def send_trigger(
+    request: Request,
     body: TriggerBody | None = Body(default=None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     couple = await CoupleRepository(db).get_by_user_id(current_user.user_id)
-
     if not couple:
         return TriggerResponse(delivered=False, method="offline")
 
@@ -35,17 +35,23 @@ async def send_trigger(
         if couple.user_a_id == current_user.user_id
         else couple.user_a_id
     )
-
     if not partner_id:
         return TriggerResponse(delivered=False, method="offline")
 
-    # Resolve button label if provided
+    # Resolve button info
     button_label = ""
+    video_url = ""
+    bg_color = ""
+
     if body and body.button_id:
         try:
             btn = await ButtonRepository(db).get_by_id(uuid.UUID(body.button_id))
             if btn and btn.owner_user_id == current_user.user_id:
                 button_label = btn.label
+                if btn.video_url:
+                    base = str(request.base_url).rstrip("/")
+                    video_url = f"{base}{btn.video_url}"
+                bg_color = btn.bg_color or ""
         except (ValueError, AttributeError):
             pass
 
@@ -53,6 +59,8 @@ async def send_trigger(
         "type": "incoming_trigger",
         "from_name": current_user.name,
         "button_label": button_label,
+        "video_url": video_url,
+        "bg_color": bg_color,
         "message": button_label or "Tu pareja te envió una señal ❤️",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

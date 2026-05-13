@@ -15,12 +15,15 @@ class ButtonCreate(BaseModel):
 
 
 class ButtonUpdate(BaseModel):
-    label: str = Field(..., min_length=1, max_length=100)
+    label: str | None = Field(None, min_length=1, max_length=100)
+    bg_color: str | None = None
 
 
 class ButtonResponse(BaseModel):
     button_id: str
     label: str
+    video_url: str | None = None
+    bg_color: str | None = None
 
 
 class ButtonListResponse(BaseModel):

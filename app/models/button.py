@@ -23,6 +23,7 @@ class Button(Base):
     label: Mapped[str] = mapped_column(String(100), nullable=False)
     video_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     video_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bg_color: Mapped[str | None] = mapped_column(String(20), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

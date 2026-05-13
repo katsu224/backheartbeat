@@ -15,6 +15,15 @@ router = APIRouter(prefix="/button", tags=["button"])
 _MAX_BUTTONS = 10
 
 
+def _to_response(b) -> ButtonResponse:
+    return ButtonResponse(
+        button_id=str(b.button_id),
+        label=b.label,
+        video_url=b.video_url,
+        bg_color=b.bg_color,
+    )
+
+
 async def _get_couple_or_raise(db, user_id):
     couple = await CoupleRepository(db).get_by_user_id(user_id)
     if not couple:
@@ -56,7 +65,7 @@ async def create_button(
         label=body.label,
     )
     await db.commit()
-    return ButtonResponse(button_id=str(button.button_id), label=button.label)
+    return _to_response(button)
 
 
 @router.get("/list", response_model=ButtonListResponse)
@@ -70,9 +79,7 @@ async def list_buttons(
 
     buttons = await ButtonRepository(db).list_by_couple(couple.couple_id)
     mine = [b for b in buttons if b.owner_user_id == current_user.user_id]
-    return ButtonListResponse(
-        buttons=[ButtonResponse(button_id=str(b.button_id), label=b.label) for b in mine]
-    )
+    return ButtonListResponse(buttons=[_to_response(b) for b in mine])
 
 
 @router.put("/{button_id}", response_model=ButtonResponse)
@@ -82,10 +89,14 @@ async def update_button(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _get_own_button_or_raise(db, button_id, current_user.user_id)
-    updated = await ButtonRepository(db).update(button_id, body.label)
+    button = await _get_own_button_or_raise(db, button_id, current_user.user_id)
+    if body.label is not None:
+        button.label = body.label
+    if body.bg_color is not None:
+        button.bg_color = body.bg_color if body.bg_color != "" else None
     await db.commit()
-    return ButtonResponse(button_id=str(updated.button_id), label=updated.label)
+    await db.refresh(button)
+    return _to_response(button)
 
 
 @router.delete("/{button_id}", status_code=status.HTTP_204_NO_CONTENT)
