@@ -8,41 +8,70 @@ from app.models.user import User
 from app.repositories.couple_repo import CoupleRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import (
-    CreateUserRequest,
-    CreateUserResponse,
     JoinCoupleRequest,
     JoinCoupleResponse,
+    LoginRequest,
+    LoginResponse,
     MeResponse,
     RefreshFCMRequest,
+    RegisterRequest,
+    RegisterResponse,
 )
 from app.services.auth_service import AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/create-user", response_model=CreateUserResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit("3/minute")
-async def create_user(
-    request: Request,
-    body: CreateUserRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    return await AuthService(db).create_user(body.name)
-
-
-@router.post("/join-couple", response_model=JoinCoupleResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
-async def join_couple(
+async def register(
     request: Request,
-    body: JoinCoupleRequest,
+    body: RegisterRequest,
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        return await AuthService(db).join_couple(body.name, body.pairing_code)
+        return await AuthService(db).register(body.username, body.name, body.password)
     except ValueError as exc:
+        if str(exc) == "USERNAME_TAKEN":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"error": "USERNAME_TAKEN", "message": "Ese nombre de usuario ya existe"},
+            )
+        raise
+
+
+@router.post("/login", response_model=LoginResponse)
+@limiter.limit("10/minute")
+async def login(
+    request: Request,
+    body: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await AuthService(db).login(body.username, body.password)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "INVALID_CREDENTIALS", "message": "Usuario o contraseña incorrectos"},
+        )
+
+
+@router.post("/join-couple", response_model=JoinCoupleResponse)
+async def join_couple(
+    body: JoinCoupleRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await AuthService(db).join_couple(current_user.user_id, body.pairing_code)
+    except ValueError as exc:
+        messages = {
+            "INVALID_PAIRING_CODE": "Código inválido o ya usado",
+            "CANNOT_JOIN_OWN_CODE": "No puedes usar tu propio código",
+        }
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "INVALID_PAIRING_CODE", "message": str(exc)},
+            detail={"error": str(exc), "message": messages.get(str(exc), str(exc))},
         )
 
 
@@ -63,15 +92,16 @@ async def get_me(
     db: AsyncSession = Depends(get_db),
 ):
     couple_repo = CoupleRepository(db)
-    couple = await couple_repo.get_by_user_id(current_user.user_id)
 
+    couple = await couple_repo.get_by_user_id(current_user.user_id)
     partner_name: str | None = None
     couple_id: str | None = None
+    pairing_code: str | None = None
     is_paired = False
 
-    if couple:
+    if couple and couple.is_complete:
+        is_paired = True
         couple_id = str(couple.couple_id)
-        is_paired = couple.is_complete
         partner_id = (
             couple.user_b_id
             if couple.user_a_id == current_user.user_id
@@ -81,11 +111,17 @@ async def get_me(
             partner = await UserRepository(db).get_by_id(partner_id)
             if partner:
                 partner_name = partner.name
+    else:
+        pending = await couple_repo.get_pending_by_user_id(current_user.user_id)
+        if pending:
+            pairing_code = pending.pairing_code
 
     return MeResponse(
         user_id=str(current_user.user_id),
+        username=current_user.username,
         name=current_user.name,
         couple_id=couple_id,
         partner_name=partner_name,
         is_paired=is_paired,
+        pairing_code=pairing_code,
     )

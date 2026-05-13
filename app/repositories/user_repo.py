@@ -10,8 +10,8 @@ class UserRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def create(self, name: str, auth_token: str) -> User:
-        user = User(name=name, auth_token=auth_token)
+    async def create(self, username: str, name: str, password_hash: str) -> User:
+        user = User(username=username, name=name, password_hash=password_hash)
         self.db.add(user)
         await self.db.flush()
         await self.db.refresh(user)
@@ -19,6 +19,12 @@ class UserRepository:
 
     async def get_by_id(self, user_id: uuid.UUID) -> User | None:
         result = await self.db.execute(select(User).where(User.user_id == user_id))
+        return result.scalar_one_or_none()
+
+    async def get_by_username(self, username: str) -> User | None:
+        result = await self.db.execute(
+            select(User).where(User.username == username)
+        )
         return result.scalar_one_or_none()
 
     async def update_auth_token(self, user_id: uuid.UUID, auth_token: str) -> None:
