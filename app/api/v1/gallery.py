@@ -1,10 +1,12 @@
+import structlog
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.models.user import User
 
+logger = structlog.get_logger()
 router = APIRouter(prefix="/gallery", tags=["gallery"])
 
 _GIPHY_BASE = "https://api.giphy.com/v1"
@@ -36,14 +38,24 @@ async def trending_stickers(
     _: User = Depends(get_current_user),
 ):
     if not settings.GIPHY_API_KEY:
+        logger.warning("giphy_key_missing", hint="Set GIPHY_API_KEY in .env and restart")
         return {"results": []}
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(
-            f"{_GIPHY_BASE}/stickers/trending",
-            params={"api_key": settings.GIPHY_API_KEY, "limit": limit, "rating": "g"},
-        )
-        r.raise_for_status()
-    return {"results": _map(r.json()["data"])}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                f"{_GIPHY_BASE}/stickers/trending",
+                params={"api_key": settings.GIPHY_API_KEY, "limit": limit, "rating": "g"},
+            )
+            r.raise_for_status()
+        data = r.json().get("data", [])
+        logger.info("giphy_trending_ok", count=len(data))
+        return {"results": _map(data)}
+    except httpx.HTTPStatusError as exc:
+        logger.error("giphy_http_error", status=exc.response.status_code, body=exc.response.text[:200])
+        raise HTTPException(status_code=502, detail=f"Giphy error {exc.response.status_code}")
+    except Exception as exc:
+        logger.error("giphy_request_failed", error=str(exc))
+        raise HTTPException(status_code=502, detail="No se pudo conectar a Giphy")
 
 
 @router.get("/stickers/search")
@@ -53,11 +65,21 @@ async def search_stickers(
     _: User = Depends(get_current_user),
 ):
     if not settings.GIPHY_API_KEY:
+        logger.warning("giphy_key_missing", hint="Set GIPHY_API_KEY in .env and restart")
         return {"results": []}
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(
-            f"{_GIPHY_BASE}/stickers/search",
-            params={"api_key": settings.GIPHY_API_KEY, "q": q, "limit": limit, "rating": "g"},
-        )
-        r.raise_for_status()
-    return {"results": _map(r.json()["data"])}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                f"{_GIPHY_BASE}/stickers/search",
+                params={"api_key": settings.GIPHY_API_KEY, "q": q, "limit": limit, "rating": "g"},
+            )
+            r.raise_for_status()
+        data = r.json().get("data", [])
+        logger.info("giphy_search_ok", q=q, count=len(data))
+        return {"results": _map(data)}
+    except httpx.HTTPStatusError as exc:
+        logger.error("giphy_http_error", status=exc.response.status_code, body=exc.response.text[:200])
+        raise HTTPException(status_code=502, detail=f"Giphy error {exc.response.status_code}")
+    except Exception as exc:
+        logger.error("giphy_request_failed", error=str(exc))
+        raise HTTPException(status_code=502, detail="No se pudo conectar a Giphy")
