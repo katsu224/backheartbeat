@@ -15,11 +15,5 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-
-# Crea directorios necesarios y un placeholder vacío para Firebase.
-# Si el usuario monta un firebase-credentials.json real vía docker-compose,
-# ese archivo reemplaza este placeholder automáticamente.
-RUN mkdir -p /app/data/videos && \
-    echo '{}' > /app/firebase-credentials.json
-
+RUN mkdir -p /app/data/videos
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
