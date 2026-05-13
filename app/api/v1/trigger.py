@@ -1,15 +1,17 @@
+import uuid
 from datetime import datetime, timezone
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
+from app.repositories.button_repo import ButtonRepository
 from app.repositories.couple_repo import CoupleRepository
 from app.repositories.user_repo import UserRepository
-from app.schemas.trigger import TriggerResponse
+from app.schemas.trigger import TriggerBody, TriggerResponse
 from app.services.connection_manager import manager
 from app.services.fcm_service import send_fcm_notification
 
@@ -19,13 +21,13 @@ router = APIRouter(prefix="/trigger", tags=["trigger"])
 
 @router.post("/send", response_model=TriggerResponse)
 async def send_trigger(
+    body: TriggerBody | None = Body(default=None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     couple = await CoupleRepository(db).get_by_user_id(current_user.user_id)
 
     if not couple:
-        logger.info("trigger_no_couple", user_id=str(current_user.user_id))
         return TriggerResponse(delivered=False, method="offline")
 
     partner_id = (
@@ -37,34 +39,33 @@ async def send_trigger(
     if not partner_id:
         return TriggerResponse(delivered=False, method="offline")
 
+    # Resolve button label if provided
+    button_label = ""
+    if body and body.button_id:
+        try:
+            btn = await ButtonRepository(db).get_by_id(uuid.UUID(body.button_id))
+            if btn and btn.owner_user_id == current_user.user_id:
+                button_label = btn.label
+        except (ValueError, AttributeError):
+            pass
+
     payload = {
         "type": "incoming_trigger",
         "from_name": current_user.name,
-        "message": "Tu pareja te envió una señal ❤️",
+        "button_label": button_label,
+        "message": button_label or "Tu pareja te envió una señal ❤️",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
     if await manager.send_to_user(partner_id, payload):
-        logger.info(
-            "trigger_websocket",
-            from_user=str(current_user.user_id),
-            to_user=str(partner_id),
-        )
+        logger.info("trigger_websocket", from_user=str(current_user.user_id), to_user=str(partner_id))
         return TriggerResponse(delivered=True, method="websocket")
 
     partner = await UserRepository(db).get_by_id(partner_id)
     if partner and partner.fcm_token:
         if await send_fcm_notification(partner.fcm_token, current_user.name):
-            logger.info(
-                "trigger_fcm",
-                from_user=str(current_user.user_id),
-                to_user=str(partner_id),
-            )
+            logger.info("trigger_fcm", from_user=str(current_user.user_id), to_user=str(partner_id))
             return TriggerResponse(delivered=True, method="fcm")
 
-    logger.info(
-        "trigger_offline",
-        from_user=str(current_user.user_id),
-        to_user=str(partner_id),
-    )
+    logger.info("trigger_offline", from_user=str(current_user.user_id), to_user=str(partner_id))
     return TriggerResponse(delivered=False, method="offline")

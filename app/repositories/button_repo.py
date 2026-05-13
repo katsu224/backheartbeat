@@ -32,6 +32,15 @@ class ButtonRepository:
         )
         return list(result.scalars().all())
 
+    async def update(self, button_id: uuid.UUID, label: str) -> Button | None:
+        button = await self.get_by_id(button_id)
+        if not button:
+            return None
+        button.label = label
+        await self.db.flush()
+        await self.db.refresh(button)
+        return button
+
     async def delete(self, button_id: uuid.UUID) -> bool:
         button = await self.get_by_id(button_id)
         if not button:
