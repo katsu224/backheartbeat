@@ -1,10 +1,12 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
 from app.models.watch_clip import WatchClip
@@ -14,6 +16,44 @@ from app.repositories.user_repo import UserRepository
 from app.schemas.watch import AddClipRequest, ClipItem, ClipsResponse, CreateRoomRequest, RoomListItem, RoomResponse, RoomsListResponse
 
 router = APIRouter(prefix="/watch", tags=["watch"])
+
+_YT_SEARCH = "https://www.googleapis.com/youtube/v3/search"
+
+
+@router.get("/search")
+async def search_youtube(
+    q: str = Query(..., min_length=1),
+    current_user: User = Depends(get_current_user),
+):
+    if not settings.YOUTUBE_API_KEY:
+        raise HTTPException(status_code=503, detail={"error": "YOUTUBE_API_NOT_CONFIGURED"})
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(_YT_SEARCH, params={
+            "part": "snippet",
+            "q": q,
+            "type": "video",
+            "videoEmbeddable": "true",
+            "maxResults": 15,
+            "key": settings.YOUTUBE_API_KEY,
+        })
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail={"error": "YOUTUBE_API_ERROR"})
+
+    items = resp.json().get("items", [])
+    return {
+        "results": [
+            {
+                "video_id": i["id"]["videoId"],
+                "title": i["snippet"]["title"],
+                "channel": i["snippet"]["channelTitle"],
+                "thumbnail": i["snippet"]["thumbnails"].get("medium", {}).get("url", ""),
+            }
+            for i in items
+            if i.get("id", {}).get("videoId")
+        ]
+    }
 
 
 async def _get_room_or_raise(db: AsyncSession, room_id: uuid.UUID) -> WatchRoom:
