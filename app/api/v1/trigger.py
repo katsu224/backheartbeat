@@ -77,7 +77,14 @@ async def send_trigger(
 
     partner = await UserRepository(db).get_by_id(partner_id)
     if partner and partner.fcm_token:
-        if await send_fcm_notification(partner.fcm_token, current_user.name):
+        if await send_fcm_notification(
+            partner.fcm_token,
+            current_user.name,
+            button_label=button_label,
+            video_url=video_url,
+            bg_color=bg_color,
+            duration_seconds=duration_seconds,
+        ):
             logger.info("trigger_fcm", from_user=str(current_user.user_id), to_user=str(partner_id))
             return TriggerResponse(delivered=True, method="fcm")
 

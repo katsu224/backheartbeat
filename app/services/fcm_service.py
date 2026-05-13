@@ -31,7 +31,14 @@ def init_firebase() -> None:
         logger.error("firebase_init_failed", error=str(exc))
 
 
-async def send_fcm_notification(fcm_token: str, from_name: str) -> bool:
+async def send_fcm_notification(
+    fcm_token: str,
+    from_name: str,
+    button_label: str = "",
+    video_url: str = "",
+    bg_color: str = "",
+    duration_seconds: int = 0,
+) -> bool:
     if not _initialized:
         logger.warning("fcm_not_initialized")
         return False
@@ -39,10 +46,14 @@ async def send_fcm_notification(fcm_token: str, from_name: str) -> bool:
         from firebase_admin import messaging
 
         message = messaging.Message(
+            android=messaging.AndroidConfig(priority="high"),
             data={
                 "type": "incoming_trigger",
                 "from_name": from_name,
-                "message": "Tu pareja te envió una señal ❤️",
+                "button_label": button_label,
+                "video_url": video_url,
+                "bg_color": bg_color,
+                "duration_seconds": str(duration_seconds),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
             token=fcm_token,
