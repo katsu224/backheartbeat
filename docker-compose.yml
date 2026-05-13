@@ -27,8 +27,7 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./data/videos:/app/data/videos
-      # Descomenta esta línea cuando tengas firebase-credentials.json:
-      # - ./firebase-credentials.json:/app/firebase-credentials.json:ro
+      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
     networks:
       - heartbeat_network
     restart: unless-stopped
