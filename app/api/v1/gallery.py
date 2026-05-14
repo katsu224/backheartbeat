@@ -12,22 +12,31 @@ router = APIRouter(prefix="/gallery", tags=["gallery"])
 _GIPHY_BASE = "https://api.giphy.com/v1"
 
 
+def _stable_url(raw: str) -> str:
+    """Strip expiring session params (?cid=...&rid=...) from Giphy CDN URLs."""
+    return raw.split("?")[0] if "?" in raw else raw
+
+
 def _map(items: list) -> list:
     results = []
     for item in items:
+        media_id = item.get("id", "")
+        if not media_id:
+            continue
         images = item.get("images", {})
         original = images.get("original", {})
-        preview = images.get("fixed_height_downsampled", images.get("downsized", original))
-        url = original.get("url", "")
-        if not url:
+        preview  = images.get("fixed_height_downsampled", images.get("downsized", original))
+        raw_url     = original.get("url", "")
+        raw_preview = preview.get("url", raw_url)
+        if not raw_url:
             continue
         results.append({
-            "id": item["id"],
-            "title": item.get("title", ""),
-            "url": url,
-            "preview_url": preview.get("url", url),
-            "width": int(original.get("width", 300)),
-            "height": int(original.get("height", 300)),
+            "id":          media_id,
+            "title":       item.get("title", ""),
+            "url":         _stable_url(raw_url),
+            "preview_url": _stable_url(raw_preview),
+            "width":       int(original.get("width", 300)),
+            "height":      int(original.get("height", 300)),
         })
     return results
 
