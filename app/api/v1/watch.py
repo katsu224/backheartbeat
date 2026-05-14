@@ -34,6 +34,7 @@ async def search_youtube(
             "q": q,
             "type": "video",
             "videoEmbeddable": "true",
+            "videoSyndicated": "true",
             "maxResults": 15,
             "key": settings.YOUTUBE_API_KEY,
         })

@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     GIPHY_API_KEY: str = ""
     YOUTUBE_API_KEY: str = ""
 
-    model_config = {"env_file": ".env", "case_sensitive": True}
+    model_config = {"env_file": ".env", "case_sensitive": False}
 
 
 settings = Settings()
