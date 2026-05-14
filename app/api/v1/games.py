@@ -18,7 +18,7 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/games", tags=["games"])
 
 CADAVER_DIR = Path("/app/data/cadaver")
-MAX_IMAGE_BYTES = 15 * 1024 * 1024  # 15 MB
+MAX_IMAGE_BYTES = 15 * 1024 * 1024
 
 
 def _base_url(request: Request) -> str:
@@ -32,12 +32,14 @@ def _game_dict(game: CadaverGame, base: str) -> dict:
     return {
         "id": gid,
         "player_a_id": str(game.player_a_id),
-        "has_head": game.head_path is not None,
-        "has_body": game.body_path is not None,
+        "player_b_id": str(game.player_b_id) if game.player_b_id else None,
+        "has_joined":  game.player_b_id is not None,
+        "has_head":    game.head_path is not None,
+        "has_body":    game.body_path is not None,
         "is_complete": game.is_complete,
-        "head_url":  f"{base}/api/v1/games/cadaver/{gid}/head"  if game.head_path  else None,
-        "body_url":  f"{base}/api/v1/games/cadaver/{gid}/body"  if game.body_path  else None,
-        "guide_url": f"{base}/api/v1/games/cadaver/{gid}/guide" if game.head_path  else None,
+        "head_url":  f"{base}/api/v1/games/cadaver/{gid}/head"  if game.head_path else None,
+        "body_url":  f"{base}/api/v1/games/cadaver/{gid}/body"  if game.body_path else None,
+        "guide_url": f"{base}/api/v1/games/cadaver/{gid}/guide" if game.head_path else None,
         "created_at": game.created_at.isoformat(),
     }
 
@@ -87,6 +89,35 @@ async def create_cadaver_game(
     return {"game_id": str(game.id)}
 
 
+@router.post("/cadaver/{game_id}/join")
+async def join_cadaver_game(
+    game_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    game = await _load_game(db, game_id, current_user)
+
+    if game.player_a_id == current_user.user_id:
+        raise HTTPException(403, {"error": "PLAYER_A_CANNOT_JOIN_OWN_GAME"})
+    if game.player_b_id is not None:
+        raise HTTPException(400, {"error": "GAME_ALREADY_JOINED"})
+    if game.is_complete:
+        raise HTTPException(400, {"error": "GAME_ALREADY_COMPLETE"})
+
+    game.player_b_id = current_user.user_id
+    await db.commit()
+
+    await manager.send_to_user(game.player_a_id, {
+        "type": "cadaver_joined",
+        "game_id": str(game_id),
+        "from_name": current_user.name,
+    })
+
+    logger.info("cadaver_joined", game_id=str(game_id), player_b=str(current_user.user_id))
+    return _game_dict(game, _base_url(request))
+
+
 @router.get("/cadaver/{game_id}")
 async def get_cadaver_game(
     game_id: uuid.UUID,
@@ -107,8 +138,11 @@ async def submit_head(
     db: AsyncSession = Depends(get_db),
 ):
     game = await _load_game(db, game_id, current_user)
+
     if game.player_a_id != current_user.user_id:
         raise HTTPException(403, {"error": "ONLY_PLAYER_A_CAN_SUBMIT_HEAD"})
+    if game.player_b_id is None:
+        raise HTTPException(400, {"error": "WAITING_FOR_PLAYER_B_TO_JOIN"})
     if game.head_path:
         raise HTTPException(400, {"error": "HEAD_ALREADY_SUBMITTED"})
 
@@ -123,15 +157,11 @@ async def submit_head(
     await db.commit()
 
     base = _base_url(request)
-    couple = await CoupleRepository(db).get_by_user_id(current_user.user_id)
-    if couple:
-        pid = await _partner_id(couple, current_user.user_id)
-        if pid:
-            await manager.send_to_user(pid, {
-                "type": "cadaver_head_ready",
-                "game_id": str(game_id),
-                "guide_url": f"{base}/api/v1/games/cadaver/{game_id}/guide",
-            })
+    await manager.send_to_user(game.player_b_id, {
+        "type": "cadaver_head_ready",
+        "game_id": str(game_id),
+        "guide_url": f"{base}/api/v1/games/cadaver/{game_id}/guide",
+    })
 
     logger.info("cadaver_head_submitted", game_id=str(game_id))
     return _game_dict(game, base)
@@ -146,7 +176,8 @@ async def submit_body(
     db: AsyncSession = Depends(get_db),
 ):
     game = await _load_game(db, game_id, current_user)
-    if game.player_a_id == current_user.user_id:
+
+    if game.player_b_id is None or game.player_b_id != current_user.user_id:
         raise HTTPException(403, {"error": "ONLY_PLAYER_B_CAN_SUBMIT_BODY"})
     if not game.head_path:
         raise HTTPException(400, {"error": "HEAD_NOT_SUBMITTED_YET"})

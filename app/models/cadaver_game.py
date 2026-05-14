@@ -20,6 +20,9 @@ class CadaverGame(Base):
     player_a_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
     )
+    player_b_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=True
+    )
     head_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     body_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_complete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
