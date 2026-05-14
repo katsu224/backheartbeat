@@ -29,6 +29,7 @@ class RoomsListResponse(BaseModel):
 
 class AddClipRequest(BaseModel):
     position_seconds: int
+    end_seconds: int | None = None
     label: str | None = None
 
 
@@ -37,6 +38,7 @@ class ClipItem(BaseModel):
     user_id: str
     user_name: str
     position_seconds: int
+    end_seconds: int | None
     label: str | None
     created_at: str
 

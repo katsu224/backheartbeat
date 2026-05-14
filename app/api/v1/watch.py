@@ -166,6 +166,7 @@ async def add_clip(
         room_id=room.room_id,
         user_id=current_user.user_id,
         position_seconds=body.position_seconds,
+        end_seconds=body.end_seconds,
         label=body.label,
     )
     db.add(clip)
@@ -178,6 +179,7 @@ async def add_clip(
         user_id=str(clip.user_id),
         user_name=current_user.name,
         position_seconds=clip.position_seconds,
+        end_seconds=clip.end_seconds,
         label=clip.label,
         created_at=clip.created_at.isoformat(),
     )
@@ -227,6 +229,7 @@ async def list_clips(
             user_id=str(c.user_id),
             user_name=name_map.get(c.user_id, "?"),
             position_seconds=c.position_seconds,
+            end_seconds=c.end_seconds,
             label=c.label,
             created_at=c.created_at.isoformat(),
         )
