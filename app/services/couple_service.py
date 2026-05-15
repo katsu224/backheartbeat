@@ -33,6 +33,11 @@ class CoupleService:
         if not couple or couple.is_complete:
             raise ValueError("INVALID_PAIRING_CODE")
 
+        # Reject if the code owner is currently paired (their pending couple persists while paired)
+        owner_paired = await self.couple_repo.get_by_user_id(couple.user_a_id)
+        if owner_paired:
+            raise ValueError("INVALID_PAIRING_CODE")
+
         if couple.user_a_id == from_user_id:
             raise ValueError("CANNOT_JOIN_OWN_CODE")
 
@@ -78,12 +83,6 @@ class CoupleService:
         couple = await self.couple_repo.get_by_pairing_code(req.pairing_code)
         if not couple or couple.is_complete:
             raise ValueError("PAIRING_EXPIRED")
-
-        # Delete requester's own dangling pending couple
-        b_pending = await self.couple_repo.get_pending_by_user_id(req.from_user_id)
-        if b_pending:
-            await self.db.delete(b_pending)
-            await self.db.flush()
 
         # Cancel all other pending requests to current user
         await self.req_repo.cancel_all_pending_for_target(current_user_id)
@@ -149,29 +148,36 @@ class CoupleService:
         if not couple:
             raise ValueError("NOT_PAIRED")
 
-        partner_id = (
-            couple.user_b_id
-            if couple.user_a_id == current_user_id
-            else couple.user_a_id
-        )
+        user_a_id = couple.user_a_id
+        user_b_id = couple.user_b_id
+        partner_id = user_b_id if user_a_id == current_user_id else user_a_id
+        # The complete couple row IS user_a's original pending couple (same row, mutated).
+        # Save their code before deleting.
+        original_a_code = couple.pairing_code
 
-        # Cancel pending requests involving both users
         await self.req_repo.cancel_all_involving_user(current_user_id)
         if partner_id:
             await self.req_repo.cancel_all_involving_user(partner_id)
 
-        # Delete the couple
         await self.db.delete(couple)
         await self.db.flush()
 
-        # Auto-generate fresh pairing codes for both
-        my_code = _random_code()
-        await self.couple_repo.create(my_code, current_user_id)
+        # Restore user_a's pending couple with their original code.
+        await self.couple_repo.create(original_a_code, user_a_id)
 
-        partner_code: str | None = None
+        # user_b's pending couple was preserved during accept_pairing; look it up.
+        b_pending = await self.couple_repo.get_pending_by_user_id(user_b_id) if user_b_id else None
+        if user_b_id and not b_pending:
+            # Fallback: if somehow lost, generate a new code.
+            b_code = _random_code()
+            await self.couple_repo.create(b_code, user_b_id)
+        else:
+            b_code = b_pending.pairing_code if b_pending else None
+
+        my_code = original_a_code if current_user_id == user_a_id else b_code
+
         if partner_id:
-            partner_code = _random_code()
-            await self.couple_repo.create(partner_code, partner_id)
+            partner_code = b_code if partner_id == user_b_id else original_a_code
             await manager.send_to_user(
                 partner_id,
                 {"type": "unpaired", "new_pairing_code": partner_code},
