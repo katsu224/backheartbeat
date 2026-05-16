@@ -55,7 +55,7 @@ async def websocket_endpoint(
             msg_type = data.get("type")
             if msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
-            elif msg_type in ("watch_sync", "watch_invite", "watch_clip"):
+            elif msg_type in ("watch_sync", "watch_invite", "watch_clip", "watch_chat"):
                 to_user = data.get("to")
                 if to_user:
                     try:
