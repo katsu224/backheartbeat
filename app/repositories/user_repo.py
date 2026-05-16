@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,5 +39,28 @@ class UserRepository:
         if not user:
             return False
         user.fcm_token = fcm_token
+        await self.db.flush()
+        return True
+
+    async def update_profile(
+        self,
+        user_id: uuid.UUID,
+        name: str | None,
+        anniversary_date: date | None,
+    ) -> User | None:
+        user = await self.get_by_id(user_id)
+        if not user:
+            return None
+        if name is not None:
+            user.name = name
+        user.anniversary_date = anniversary_date
+        await self.db.flush()
+        return user
+
+    async def update_avatar_path(self, user_id: uuid.UUID, avatar_path: str | None) -> bool:
+        user = await self.get_by_id(user_id)
+        if not user:
+            return False
+        user.avatar_path = avatar_path
         await self.db.flush()
         return True

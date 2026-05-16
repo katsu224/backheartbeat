@@ -18,6 +18,7 @@ from app.schemas.auth import (
     RefreshFCMRequest,
     RegisterRequest,
     RegisterResponse,
+    UpdateMeRequest,
 )
 from app.services.auth_service import AuthService
 
@@ -88,11 +89,36 @@ async def refresh_fcm(
     return {"ok": True}
 
 
+@router.put("/me", response_model=MeResponse)
+async def update_me(
+    body: UpdateMeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await UserRepository(db).update_profile(
+        current_user.user_id,
+        name=body.name,
+        anniversary_date=body.anniversary_date,
+    )
+    await db.commit()
+    await db.refresh(current_user)
+    # Reuse get_me logic by falling through to the same response builder
+    return await _build_me_response(current_user, db)
+
+
 @router.get("/me", response_model=MeResponse)
 async def get_me(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    return await _build_me_response(current_user, db)
+
+
+def _avatar_url(user_id) -> str:
+    return f"/api/v1/media/avatar/{user_id}"
+
+
+async def _build_me_response(current_user: User, db: AsyncSession) -> MeResponse:
     couple_repo = CoupleRepository(db)
 
     couple = await couple_repo.get_by_user_id(current_user.user_id)
@@ -100,10 +126,10 @@ async def get_me(
     couple_id: str | None = None
     pairing_code: str | None = None
     is_paired = False
-
     pending_request: PendingRequestInfo | None = None
-
     partner_user_id: str | None = None
+    partner_avatar_url: str | None = None
+
     if couple and couple.is_complete:
         is_paired = True
         couple_id = str(couple.couple_id)
@@ -117,12 +143,13 @@ async def get_me(
             partner = await UserRepository(db).get_by_id(partner_id)
             if partner:
                 partner_name = partner.name
+                if partner.avatar_path:
+                    partner_avatar_url = _avatar_url(partner_id)
     else:
         pending_couple = await couple_repo.get_pending_by_user_id(current_user.user_id)
         if pending_couple:
             pairing_code = pending_couple.pairing_code
 
-        # Check for incoming pairing request (someone wants to link with this user)
         req_repo = PairingRequestRepository(db)
         incoming = await req_repo.get_latest_pending_for_target(current_user.user_id)
         if incoming:
@@ -138,9 +165,12 @@ async def get_me(
         user_id=str(current_user.user_id),
         username=current_user.username,
         name=current_user.name,
+        avatar_url=_avatar_url(current_user.user_id) if current_user.avatar_path else None,
+        anniversary_date=current_user.anniversary_date,
         couple_id=couple_id,
         partner_name=partner_name,
         partner_user_id=partner_user_id,
+        partner_avatar_url=partner_avatar_url,
         is_paired=is_paired,
         pairing_code=pairing_code,
         pending_request=pending_request,

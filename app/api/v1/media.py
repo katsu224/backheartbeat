@@ -14,11 +14,15 @@ from app.models.signal import Signal
 from app.models.user import User
 from app.repositories.button_repo import ButtonRepository
 from app.repositories.couple_repo import CoupleRepository
+from app.repositories.user_repo import UserRepository
 from app.services.connection_manager import manager
 from app.services.fcm_service import send_fcm_notification
 
-SELFIES_DIR = Path("/app/data/selfies")
-VOICES_DIR  = Path("/app/data/voices")
+SELFIES_DIR  = Path("/app/data/selfies")
+VOICES_DIR   = Path("/app/data/voices")
+AVATARS_DIR  = Path("/app/data/avatars")
+ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+MAX_AVATAR_BYTES = 5 * 1024 * 1024  # 5 MB
 ALLOWED_AUDIO_EXTENSIONS = {".m4a", ".aac", ".mp3", ".3gp", ".ogg", ".opus"}
 MAX_AUDIO_BYTES = 10 * 1024 * 1024  # 10 MB
 
@@ -356,6 +360,55 @@ async def serve_voice(voice_id: uuid.UUID):
         path = VOICES_DIR / f"{voice_id}{suffix}"
         if path.exists():
             return FileResponse(str(path), media_type=mime_map.get(suffix, "audio/mp4"))
+    raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
+
+
+@router.post("/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    suffix = Path(file.filename or "avatar.jpg").suffix.lower()
+    if suffix not in ALLOWED_AVATAR_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "INVALID_FORMAT", "message": "Solo se aceptan JPG, PNG, WEBP"},
+        )
+
+    content = await file.read()
+    if len(content) > MAX_AVATAR_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "FILE_TOO_LARGE", "message": "Máximo 5 MB"},
+        )
+
+    AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Remove old avatar file (any extension)
+    user_id = current_user.user_id
+    for ext in ALLOWED_AVATAR_EXTENSIONS:
+        old = AVATARS_DIR / f"{user_id}{ext}"
+        old.unlink(missing_ok=True)
+
+    file_path = AVATARS_DIR / f"{user_id}{suffix}"
+    file_path.write_bytes(content)
+
+    await UserRepository(db).update_avatar_path(user_id, str(file_path))
+    await db.commit()
+
+    logger.info("avatar_uploaded", user_id=str(user_id), bytes=len(content))
+    return {"avatar_url": f"/api/v1/media/avatar/{user_id}"}
+
+
+@router.get("/avatar/{user_id}")
+async def serve_avatar(user_id: uuid.UUID):
+    for suffix in ALLOWED_AVATAR_EXTENSIONS:
+        path = AVATARS_DIR / f"{user_id}{suffix}"
+        if path.exists():
+            mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                        ".png": "image/png", ".webp": "image/webp"}
+            return FileResponse(str(path), media_type=mime_map.get(suffix, "image/jpeg"))
     raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
 
 
