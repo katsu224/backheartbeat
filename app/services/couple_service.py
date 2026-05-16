@@ -1,6 +1,7 @@
 import random
 import string
 import uuid
+from datetime import datetime, timezone
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -140,6 +141,16 @@ class CoupleService:
         await self.db.commit()
         logger.info("pairing_rejected", request_id=str(request_id))
         return {"status": "rejected"}
+
+    # ── STATS ─────────────────────────────────────────────────────────────────
+
+    async def get_stats(self, current_user_id: uuid.UUID) -> dict:
+        couple = await self.couple_repo.get_by_user_id(current_user_id)
+        if not couple:
+            raise ValueError("NOT_PAIRED")
+        paired_since = couple.paired_at or couple.created_at
+        days = (datetime.now(timezone.utc) - paired_since).days
+        return {"days_together": days, "paired_since": paired_since.date()}
 
     # ── UNPAIR ────────────────────────────────────────────────────────────────
 

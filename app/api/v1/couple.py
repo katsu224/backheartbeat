@@ -8,6 +8,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.couple import (
     AcceptRejectResponse,
+    CoupleStatsResponse,
     RequestPairingBody,
     RequestPairingResponse,
     UnpairResponse,
@@ -64,6 +65,17 @@ async def reject_pairing(
 ):
     try:
         return await CoupleService(db).reject_pairing(request_id, current_user.user_id)
+    except ValueError as exc:
+        _handle(exc)
+
+
+@router.get("/stats", response_model=CoupleStatsResponse)
+async def couple_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await CoupleService(db).get_stats(current_user.user_id)
     except ValueError as exc:
         _handle(exc)
 

@@ -1,3 +1,5 @@
+from datetime import date
+
 from pydantic import BaseModel, Field
 
 
@@ -19,3 +21,8 @@ class AcceptRejectResponse(BaseModel):
 class UnpairResponse(BaseModel):
     status: str
     new_pairing_code: str
+
+
+class CoupleStatsResponse(BaseModel):
+    days_together: int
+    paired_since: date

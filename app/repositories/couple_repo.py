@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +52,7 @@ class CoupleRepository:
         couple = await self.get_by_id(couple_id)
         couple.user_b_id = user_b_id
         couple.is_complete = True
+        couple.paired_at = datetime.now(timezone.utc)
         await self.db.flush()
         await self.db.refresh(couple)
         return couple

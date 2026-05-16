@@ -22,6 +22,7 @@ class Couple(Base):
         UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True
     )
     is_complete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    paired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
