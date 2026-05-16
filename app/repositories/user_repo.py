@@ -1,5 +1,4 @@
 import uuid
-from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,18 +41,12 @@ class UserRepository:
         await self.db.flush()
         return True
 
-    async def update_profile(
-        self,
-        user_id: uuid.UUID,
-        name: str | None,
-        anniversary_date: date | None,
-    ) -> User | None:
+    async def update_profile(self, user_id: uuid.UUID, name: str | None) -> User | None:
         user = await self.get_by_id(user_id)
         if not user:
             return None
         if name is not None:
             user.name = name
-        user.anniversary_date = anniversary_date
         await self.db.flush()
         return user
 

@@ -95,14 +95,13 @@ async def update_me(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await UserRepository(db).update_profile(
-        current_user.user_id,
-        name=body.name,
-        anniversary_date=body.anniversary_date,
-    )
+    await UserRepository(db).update_profile(current_user.user_id, name=body.name)
+    if body.anniversary_date is not None:
+        couple = await CoupleRepository(db).get_by_user_id(current_user.user_id)
+        if couple:
+            await CoupleRepository(db).update_anniversary(couple.couple_id, body.anniversary_date)
     await db.commit()
     await db.refresh(current_user)
-    # Reuse get_me logic by falling through to the same response builder
     return await _build_me_response(current_user, db)
 
 
@@ -166,7 +165,7 @@ async def _build_me_response(current_user: User, db: AsyncSession) -> MeResponse
         username=current_user.username,
         name=current_user.name,
         avatar_url=_avatar_url(current_user.user_id) if current_user.avatar_path else None,
-        anniversary_date=current_user.anniversary_date,
+        anniversary_date=couple.anniversary_date if couple else None,
         couple_id=couple_id,
         partner_name=partner_name,
         partner_user_id=partner_user_id,

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +47,12 @@ class CoupleRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def update_anniversary(self, couple_id: uuid.UUID, anniversary_date: date) -> Couple:
+        couple = await self.get_by_id(couple_id)
+        couple.anniversary_date = anniversary_date
+        await self.db.flush()
+        return couple
 
     async def complete_couple(self, couple_id: uuid.UUID, user_b_id: uuid.UUID) -> Couple:
         couple = await self.get_by_id(couple_id)
