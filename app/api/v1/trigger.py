@@ -79,6 +79,7 @@ async def send_trigger(
         button_label=button_label or None,
         button_type=button_type,
         bg_color=bg_color or None,
+        media_url=video_url or None,
     ))
     await db.flush()
     await db.commit()

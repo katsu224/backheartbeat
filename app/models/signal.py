@@ -23,6 +23,7 @@ class Signal(Base):
     button_label: Mapped[str | None] = mapped_column(Text, nullable=True)
     button_type: Mapped[str] = mapped_column(String(20), nullable=False, default="text")
     bg_color: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    media_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     video_reply_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

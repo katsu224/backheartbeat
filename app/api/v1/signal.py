@@ -75,6 +75,7 @@ async def get_history(
                 button_label=s.button_label or "",
                 button_type=s.button_type,
                 bg_color=s.bg_color or "",
+                media_url=s.media_url,
                 video_reply_url=s.video_reply_url,
                 created_at=s.created_at.isoformat(),
             )
