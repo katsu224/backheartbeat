@@ -1,3 +1,4 @@
+import time
 import structlog
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +11,19 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/gallery", tags=["gallery"])
 
 _GIPHY_BASE = "https://api.giphy.com/v1"
+_CACHE_TTL = 3600.0
+_cache: dict[str, tuple[float, list]] = {}
+
+
+def _cache_get(key: str) -> list | None:
+    entry = _cache.get(key)
+    if entry and time.monotonic() - entry[0] < _CACHE_TTL:
+        return entry[1]
+    return None
+
+
+def _cache_set(key: str, value: list) -> None:
+    _cache[key] = (time.monotonic(), value)
 
 
 def _stable_url(raw: str) -> str:
@@ -42,6 +56,11 @@ def _map(items: list) -> list:
 
 
 async def _giphy_get(path: str, params: dict) -> list:
+    cache_key = path + str(sorted(params.items()))
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        logger.info("giphy_cache_hit", path=path)
+        return cached
     if not settings.GIPHY_API_KEY:
         logger.warning("giphy_key_missing", hint="Set GIPHY_API_KEY in .env and restart")
         return []
@@ -50,6 +69,7 @@ async def _giphy_get(path: str, params: dict) -> list:
             r = await client.get(f"{_GIPHY_BASE}{path}", params={"api_key": settings.GIPHY_API_KEY, **params})
             r.raise_for_status()
         data = r.json().get("data", [])
+        _cache_set(cache_key, data)
         logger.info("giphy_ok", path=path, count=len(data))
         return data
     except httpx.HTTPStatusError as exc:

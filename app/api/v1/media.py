@@ -69,6 +69,25 @@ ALLOWED_EXTENSIONS = {".mp4", ".webm"}
 ALLOWED_IMAGE_EXTENSIONS = {".gif", ".png", ".jpg", ".jpeg", ".webp"}
 MAX_VIDEO_BYTES = 50 * 1024 * 1024   # 50 MB
 MAX_IMAGE_BYTES = 10 * 1024 * 1024   # 10 MB
+CHUNK_SIZE = 256 * 1024
+
+
+async def _stream_to_file(
+    file: UploadFile, max_bytes: int, dest: Path, too_large_detail: dict | None = None
+) -> int:
+    detail = too_large_detail or {"error": "FILE_TOO_LARGE"}
+    size = 0
+    try:
+        with dest.open("wb") as f:
+            while chunk := await file.read(CHUNK_SIZE):
+                size += len(chunk)
+                if size > max_bytes:
+                    raise HTTPException(status_code=400, detail=detail)
+                f.write(chunk)
+    except HTTPException:
+        dest.unlink(missing_ok=True)
+        raise
+    return size
 
 
 async def _own_button(db, button_id: uuid.UUID, user_id: uuid.UUID):
@@ -98,13 +117,6 @@ async def upload_video(
             detail={"error": "INVALID_FORMAT", "message": "Solo se aceptan .mp4 y .webm"},
         )
 
-    content = await file.read()
-    if len(content) > MAX_VIDEO_BYTES:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "FILE_TOO_LARGE", "message": "Máximo 50 MB"},
-        )
-
     VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Remove old file if different extension
@@ -114,13 +126,16 @@ async def upload_video(
             old.unlink(missing_ok=True)
 
     file_path = VIDEOS_DIR / f"{button_id}{suffix}"
-    file_path.write_bytes(content)
+    nbytes = await _stream_to_file(
+        file, MAX_VIDEO_BYTES, file_path,
+        {"error": "FILE_TOO_LARGE", "message": "Máximo 50 MB"},
+    )
 
     btn.video_path = str(file_path)
     btn.video_url = f"/api/v1/media/video/{button_id}"
     await db.commit()
 
-    logger.info("video_uploaded", button_id=str(button_id), bytes=len(content))
+    logger.info("video_uploaded", button_id=str(button_id), bytes=nbytes)
     return {"video_url": btn.video_url}
 
 
@@ -166,13 +181,6 @@ async def upload_image(
             detail={"error": "INVALID_FORMAT", "message": "Solo se aceptan GIF, PNG, JPG, WEBP"},
         )
 
-    content = await file.read()
-    if len(content) > MAX_IMAGE_BYTES:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "FILE_TOO_LARGE", "message": "Máximo 10 MB"},
-        )
-
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
     if btn.video_path and btn.video_path.startswith("/app/data/images/"):
@@ -181,13 +189,16 @@ async def upload_image(
             old.unlink(missing_ok=True)
 
     file_path = IMAGES_DIR / f"{button_id}{suffix}"
-    file_path.write_bytes(content)
+    nbytes = await _stream_to_file(
+        file, MAX_IMAGE_BYTES, file_path,
+        {"error": "FILE_TOO_LARGE", "message": "Máximo 10 MB"},
+    )
 
     btn.video_path = str(file_path)
     btn.video_url = f"/api/v1/media/image/{button_id}"
     await db.commit()
 
-    logger.info("image_uploaded", button_id=str(button_id), bytes=len(content))
+    logger.info("image_uploaded", button_id=str(button_id), bytes=nbytes)
     return {"video_url": btn.video_url}
 
 
@@ -237,13 +248,9 @@ async def upload_signal_reply(
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail={"error": "INVALID_FORMAT"})
 
-    content = await file.read()
-    if len(content) > MAX_VIDEO_BYTES:
-        raise HTTPException(status_code=400, detail={"error": "FILE_TOO_LARGE"})
-
     REPLIES_DIR.mkdir(parents=True, exist_ok=True)
     file_path = REPLIES_DIR / f"{signal_id}{suffix}"
-    file_path.write_bytes(content)
+    nbytes = await _stream_to_file(file, MAX_VIDEO_BYTES, file_path)
 
     proto = request.headers.get("x-forwarded-proto", "https")
     host  = request.headers.get("x-forwarded-host", "") or request.headers.get("host", "")
@@ -275,7 +282,7 @@ async def upload_signal_reply(
                 button_type="video",
             )
 
-    logger.info("signal_reply_uploaded", signal_id=str(signal_id), bytes=len(content))
+    logger.info("signal_reply_uploaded", signal_id=str(signal_id), bytes=nbytes)
     return {"video_url": reply_url}
 
 
@@ -356,21 +363,17 @@ async def upload_selfie(
     if suffix not in ALLOWED_IMAGE_EXTENSIONS:
         raise HTTPException(status_code=400, detail={"error": "INVALID_FORMAT"})
 
-    content = await file.read()
-    if len(content) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=400, detail={"error": "FILE_TOO_LARGE"})
-
     selfie_id = uuid.uuid4()
     SELFIES_DIR.mkdir(parents=True, exist_ok=True)
     file_path = SELFIES_DIR / f"{selfie_id}{suffix}"
-    file_path.write_bytes(content)
+    nbytes = await _stream_to_file(file, MAX_IMAGE_BYTES, file_path)
 
     media_repo = UserMediaRepository(db)
     await media_repo.record(
         user_id=current_user.user_id,
         media_type="selfie",
         file_path=str(file_path),
-        size_bytes=len(content),
+        size_bytes=nbytes,
     )
     await media_repo.enforce_quota(current_user.user_id, "selfie", SELFIE_QUOTA)
     await db.commit()
@@ -384,7 +387,7 @@ async def upload_selfie(
     if partner_id:
         await _send_instant_signal(partner_id, current_user.name, "📸 Selfie", "selfie", selfie_url, db)
 
-    logger.info("selfie_uploaded", selfie_id=str(selfie_id), bytes=len(content))
+    logger.info("selfie_uploaded", selfie_id=str(selfie_id), bytes=nbytes)
     return {"selfie_url": selfie_url}
 
 
@@ -431,21 +434,17 @@ async def upload_voice(
     if suffix not in ALLOWED_AUDIO_EXTENSIONS:
         raise HTTPException(status_code=400, detail={"error": "INVALID_FORMAT"})
 
-    content = await file.read()
-    if len(content) > MAX_AUDIO_BYTES:
-        raise HTTPException(status_code=400, detail={"error": "FILE_TOO_LARGE"})
-
     voice_id = uuid.uuid4()
     VOICES_DIR.mkdir(parents=True, exist_ok=True)
     file_path = VOICES_DIR / f"{voice_id}{suffix}"
-    file_path.write_bytes(content)
+    nbytes = await _stream_to_file(file, MAX_AUDIO_BYTES, file_path)
 
     media_repo = UserMediaRepository(db)
     await media_repo.record(
         user_id=current_user.user_id,
         media_type="voice",
         file_path=str(file_path),
-        size_bytes=len(content),
+        size_bytes=nbytes,
     )
     await media_repo.enforce_quota(current_user.user_id, "voice", VOICE_QUOTA)
     await db.commit()
@@ -459,7 +458,7 @@ async def upload_voice(
     if partner_id:
         await _send_instant_signal(partner_id, current_user.name, "🎙 Nota de voz", "voice", voice_url, db)
 
-    logger.info("voice_uploaded", voice_id=str(voice_id), bytes=len(content))
+    logger.info("voice_uploaded", voice_id=str(voice_id), bytes=nbytes)
     return {"voice_url": voice_url}
 
 
@@ -505,13 +504,6 @@ async def upload_avatar(
             detail={"error": "INVALID_FORMAT", "message": "Solo se aceptan JPG, PNG, WEBP"},
         )
 
-    content = await file.read()
-    if len(content) > MAX_AVATAR_BYTES:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "FILE_TOO_LARGE", "message": "Máximo 5 MB"},
-        )
-
     AVATARS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Remove old avatar file (any extension)
@@ -521,12 +513,15 @@ async def upload_avatar(
         old.unlink(missing_ok=True)
 
     file_path = AVATARS_DIR / f"{user_id}{suffix}"
-    file_path.write_bytes(content)
+    nbytes = await _stream_to_file(
+        file, MAX_AVATAR_BYTES, file_path,
+        {"error": "FILE_TOO_LARGE", "message": "Máximo 5 MB"},
+    )
 
     await UserRepository(db).update_avatar_path(user_id, str(file_path))
     await db.commit()
 
-    logger.info("avatar_uploaded", user_id=str(user_id), bytes=len(content))
+    logger.info("avatar_uploaded", user_id=str(user_id), bytes=nbytes)
     return {"avatar_url": f"/api/v1/media/avatar/{user_id}"}
 
 

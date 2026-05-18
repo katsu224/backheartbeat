@@ -18,10 +18,26 @@ from app.services.fcm_service import send_fcm_notification
 logger = structlog.get_logger()
 
 
+async def _seconds_until_next() -> float:
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ScheduledSignal.scheduled_at)
+            .where(ScheduledSignal.is_sent.is_(False))
+            .order_by(ScheduledSignal.scheduled_at)
+            .limit(1)
+        )
+        next_at = result.scalar_one_or_none()
+    if next_at is None:
+        return 60.0
+    if next_at.tzinfo is None:
+        next_at = next_at.replace(tzinfo=timezone.utc)
+    return max(0.0, min((next_at - datetime.now(timezone.utc)).total_seconds(), 60.0))
+
+
 async def scheduled_signals_worker() -> None:
     while True:
         try:
-            await asyncio.sleep(60)
+            await asyncio.sleep(await _seconds_until_next())
             await _process_due()
         except asyncio.CancelledError:
             break
