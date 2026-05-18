@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.rate_limiter import limiter
 from app.db.session import get_db
 from app.models.signal import Signal
@@ -51,9 +52,9 @@ def _cached_file_response(request: Request, path: Path, media_type: str) -> Resp
         headers={**MEDIA_CACHE_HEADERS, "ETag": etag},
     )
 
-SELFIES_DIR  = Path("/app/data/selfies")
-VOICES_DIR   = Path("/app/data/voices")
-AVATARS_DIR  = Path("/app/data/avatars")
+SELFIES_DIR  = Path(settings.DATA_DIR) / "selfies"
+VOICES_DIR   = Path(settings.DATA_DIR) / "voices"
+AVATARS_DIR  = Path(settings.DATA_DIR) / "avatars"
 ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_AVATAR_BYTES = 5 * 1024 * 1024  # 5 MB
 ALLOWED_AUDIO_EXTENSIONS = {".m4a", ".aac", ".mp3", ".3gp", ".ogg", ".opus"}
@@ -62,9 +63,9 @@ MAX_AUDIO_BYTES = 10 * 1024 * 1024  # 10 MB
 logger = structlog.get_logger()
 router = APIRouter(prefix="/media", tags=["media"])
 
-VIDEOS_DIR  = Path("/app/data/videos")
-IMAGES_DIR  = Path("/app/data/images")
-REPLIES_DIR = Path("/app/data/replies")
+VIDEOS_DIR  = Path(settings.DATA_DIR) / "videos"
+IMAGES_DIR  = Path(settings.DATA_DIR) / "images"
+REPLIES_DIR = Path(settings.DATA_DIR) / "replies"
 ALLOWED_EXTENSIONS = {".mp4", ".webm"}
 ALLOWED_IMAGE_EXTENSIONS = {".gif", ".png", ".jpg", ".jpeg", ".webp"}
 MAX_VIDEO_BYTES = 50 * 1024 * 1024   # 50 MB

@@ -68,17 +68,14 @@ async def websocket_endpoint(
         # the race where the partner connected first and their inbound
         # "partner_online" hit no one.
         if await manager.is_connected(partner_id):
-            try:
-                await websocket.send_json({"type": "partner_online"})
-            except Exception as exc:
-                logger.warning("ws_initial_state_failed", user_id=user_id, error=str(exc))
+            await manager.send_to_user(parsed_id, {"type": "partner_online"})
 
     try:
         while True:
             data = await websocket.receive_json()
             msg_type = data.get("type")
             if msg_type == "ping":
-                await websocket.send_json({"type": "pong"})
+                await manager.send_to_user(parsed_id, {"type": "pong"})
             elif msg_type in ("watch_sync", "watch_invite", "watch_clip", "watch_chat", "webrtc_signal"):
                 to_user = data.get("to")
                 if to_user:
@@ -89,8 +86,8 @@ async def websocket_endpoint(
                     except ValueError:
                         pass
             else:
-                await websocket.send_json(
-                    {"type": "error", "message": f"Unknown type: {msg_type}"}
+                await manager.send_to_user(
+                    parsed_id, {"type": "error", "message": f"Unknown type: {msg_type}"}
                 )
     except WebSocketDisconnect:
         pass

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 90
     FIREBASE_CREDENTIALS_PATH: str = "/app/firebase-credentials.json"
+    DATA_DIR: str = "/app/data"
     GIPHY_API_KEY: str = ""
     YOUTUBE_API_KEY: str = ""
     PUBLIC_BASE_URL: str = "https://api.laaf.lat"

@@ -31,6 +31,7 @@ class ConnectionManager:
 
     def __init__(self) -> None:
         self._connections: dict[str, WebSocket] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
         self._redis: aioredis.Redis | None = None
         self._subscriber_task: asyncio.Task | None = None
 
@@ -58,6 +59,7 @@ class ConnectionManager:
     async def connect(self, user_id: uuid.UUID, websocket: WebSocket) -> None:
         key = str(user_id)
         self._connections[key] = websocket
+        self._locks[key] = asyncio.Lock()
         await self._mark_online(key)
         logger.info("ws_connected", user_id=key, total=len(self._connections))
 
@@ -65,6 +67,7 @@ class ConnectionManager:
         key = str(user_id)
         if self._connections.pop(key, None) is None:
             return
+        self._locks.pop(key, None)
         if self._redis:
             asyncio.create_task(self._clear_online(key))
         logger.info("ws_disconnected", user_id=key, total=len(self._connections))
@@ -104,15 +107,18 @@ class ConnectionManager:
             return False
 
     async def _deliver_local(self, key: str, ws: WebSocket, message: dict) -> bool:
-        try:
-            await ws.send_json(message)
-            return True
-        except Exception as exc:
-            logger.warning("ws_send_failed", user_id=key, error=str(exc))
-            self._connections.pop(key, None)
-            if self._redis:
-                await self._clear_online(key)
-            return False
+        lock = self._locks.get(key) or asyncio.Lock()
+        async with lock:
+            try:
+                await ws.send_json(message)
+                return True
+            except Exception as exc:
+                logger.warning("ws_send_failed", user_id=key, error=str(exc))
+                self._connections.pop(key, None)
+                self._locks.pop(key, None)
+                if self._redis:
+                    await self._clear_online(key)
+                return False
 
     async def _mark_online(self, key: str) -> None:
         if not self._redis:
@@ -148,12 +154,15 @@ class ConnectionManager:
                 ws = self._connections.get(target)
                 if ws is None:
                     continue
-                try:
-                    await ws.send_json(message)
-                except Exception as exc:
-                    logger.warning("ws_relay_failed", user_id=target, error=str(exc))
-                    self._connections.pop(target, None)
-                    await self._clear_online(target)
+                lock = self._locks.get(target) or asyncio.Lock()
+                async with lock:
+                    try:
+                        await ws.send_json(message)
+                    except Exception as exc:
+                        logger.warning("ws_relay_failed", user_id=target, error=str(exc))
+                        self._connections.pop(target, None)
+                        self._locks.pop(target, None)
+                        await self._clear_online(target)
         except asyncio.CancelledError:
             pass
         except Exception as exc:
