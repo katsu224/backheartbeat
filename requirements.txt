@@ -19,3 +19,4 @@ orjson==3.10.3
 tenacity==8.2.3
 firebase-admin==6.5.0
 websockets==12.0
+redis==5.0.4

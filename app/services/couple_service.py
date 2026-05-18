@@ -1,5 +1,3 @@
-import random
-import string
 import uuid
 from datetime import datetime, timezone
 
@@ -9,15 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories.couple_repo import CoupleRepository
 from app.repositories.pairing_request_repo import PairingRequestRepository
 from app.repositories.user_repo import UserRepository
+from app.services.auth_service import _generate_pairing_code
 from app.services.connection_manager import manager
 
 logger = structlog.get_logger()
 
 
 def _random_code() -> str:
-    chars = random.choices(string.ascii_uppercase, k=4) + random.choices(string.digits, k=2)
-    random.shuffle(chars)
-    return "".join(chars)
+    return _generate_pairing_code()
 
 
 class CoupleService:

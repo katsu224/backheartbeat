@@ -4,7 +4,8 @@ from pydantic import BaseModel, Field
 
 
 class RequestPairingBody(BaseModel):
-    pairing_code: str = Field(..., min_length=6, max_length=6)
+    # Range accepts both legacy 6-char codes and new 8-char codes during transition.
+    pairing_code: str = Field(..., min_length=6, max_length=8)
 
 
 class RequestPairingResponse(BaseModel):

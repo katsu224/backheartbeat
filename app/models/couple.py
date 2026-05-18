@@ -14,7 +14,7 @@ class Couple(Base):
     couple_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    pairing_code: Mapped[str] = mapped_column(String(6), unique=True, nullable=False)
+    pairing_code: Mapped[str] = mapped_column(String(16), unique=True, nullable=False)
     user_a_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True
     )

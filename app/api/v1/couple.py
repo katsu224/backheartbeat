@@ -1,9 +1,10 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.rate_limiter import limiter
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.couple import (
@@ -14,6 +15,7 @@ from app.schemas.couple import (
     UnpairResponse,
 )
 from app.services.couple_service import CoupleService
+from app.services.pairing_throttle import PairingLockedError, PairingThrottle
 
 router = APIRouter(prefix="/couple", tags=["couple"])
 
@@ -34,14 +36,28 @@ def _handle(exc: ValueError):
 
 
 @router.post("/request", response_model=RequestPairingResponse)
+@limiter.limit("5/minute")
 async def request_pairing(
+    request: Request,
     body: RequestPairingBody,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        return await CoupleService(db).request_pairing(current_user.user_id, body.pairing_code)
+        await PairingThrottle.assert_not_locked(current_user.user_id)
+    except PairingLockedError:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"error": "PAIRING_LOCKED", "message": "Demasiados códigos inválidos. Probá más tarde."},
+        )
+
+    try:
+        result = await CoupleService(db).request_pairing(current_user.user_id, body.pairing_code)
+        await PairingThrottle.record_success(current_user.user_id)
+        return result
     except ValueError as exc:
+        if str(exc) == "INVALID_PAIRING_CODE":
+            await PairingThrottle.record_failure(current_user.user_id)
         _handle(exc)
 
 

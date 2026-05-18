@@ -4,19 +4,52 @@ from pathlib import Path
 
 import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
-from fastapi.responses import FileResponse
-from sqlalchemy import or_, select
+from fastapi.responses import FileResponse, Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.rate_limiter import limiter
 from app.db.session import get_db
 from app.models.signal import Signal
 from app.models.user import User
 from app.repositories.button_repo import ButtonRepository
 from app.repositories.couple_repo import CoupleRepository
+from app.repositories.user_media_repo import UserMediaRepository
 from app.repositories.user_repo import UserRepository
 from app.services.connection_manager import manager
 from app.services.fcm_service import send_fcm_notification
+
+MEDIA_CACHE_HEADERS = {"Cache-Control": "private, max-age=86400"}
+SELFIE_QUOTA = 100
+VOICE_QUOTA = 100
+
+
+async def _partner_id_for(db: AsyncSession, user_id: uuid.UUID) -> uuid.UUID | None:
+    couple = await CoupleRepository(db).get_by_user_id(user_id)
+    if not couple:
+        return None
+    return couple.user_b_id if couple.user_a_id == user_id else couple.user_a_id
+
+
+def _forbid() -> HTTPException:
+    return HTTPException(status_code=403, detail={"error": "FORBIDDEN"})
+
+
+def _file_etag(path: Path) -> str:
+    stat = path.stat()
+    return f'W/"{int(stat.st_mtime)}-{stat.st_size}"'
+
+
+def _cached_file_response(request: Request, path: Path, media_type: str) -> Response:
+    etag = _file_etag(path)
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={**MEDIA_CACHE_HEADERS, "ETag": etag})
+    return FileResponse(
+        str(path),
+        media_type=media_type,
+        headers={**MEDIA_CACHE_HEADERS, "ETag": etag},
+    )
 
 SELFIES_DIR  = Path("/app/data/selfies")
 VOICES_DIR   = Path("/app/data/voices")
@@ -48,7 +81,9 @@ async def _own_button(db, button_id: uuid.UUID, user_id: uuid.UUID):
 
 
 @router.post("/video/{button_id}")
+@limiter.limit("20/minute")
 async def upload_video(
+    request: Request,
     button_id: uuid.UUID,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
@@ -90,21 +125,33 @@ async def upload_video(
 
 
 @router.get("/video/{button_id}")
-async def serve_video(button_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@limiter.limit("120/minute")
+async def serve_video(
+    request: Request,
+    button_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     btn = await ButtonRepository(db).get_by_id(button_id)
     if not btn or not btn.video_path:
         raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
+
+    partner_id = await _partner_id_for(db, current_user.user_id)
+    if btn.owner_user_id != current_user.user_id and btn.owner_user_id != partner_id:
+        raise _forbid()
 
     path = Path(btn.video_path)
     if not path.exists():
         raise HTTPException(status_code=404, detail={"error": "FILE_MISSING"})
 
     media_type = "video/webm" if path.suffix == ".webm" else "video/mp4"
-    return FileResponse(str(path), media_type=media_type)
+    return _cached_file_response(request, path, media_type)
 
 
 @router.post("/image/{button_id}")
+@limiter.limit("20/minute")
 async def upload_image(
+    request: Request,
     button_id: uuid.UUID,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
@@ -145,10 +192,20 @@ async def upload_image(
 
 
 @router.get("/image/{button_id}")
-async def serve_image(button_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@limiter.limit("120/minute")
+async def serve_image(
+    request: Request,
+    button_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     btn = await ButtonRepository(db).get_by_id(button_id)
     if not btn or not btn.video_path or not btn.video_path.startswith("/app/data/images/"):
         raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
+
+    partner_id = await _partner_id_for(db, current_user.user_id)
+    if btn.owner_user_id != current_user.user_id and btn.owner_user_id != partner_id:
+        raise _forbid()
 
     path = Path(btn.video_path)
     if not path.exists():
@@ -157,13 +214,14 @@ async def serve_image(button_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     suffix = path.suffix.lower()
     mime_map = {".gif": "image/gif", ".png": "image/png", ".jpg": "image/jpeg",
                 ".jpeg": "image/jpeg", ".webp": "image/webp"}
-    return FileResponse(str(path), media_type=mime_map.get(suffix, "image/gif"))
+    return _cached_file_response(request, path, mime_map.get(suffix, "image/gif"))
 
 
 @router.post("/signal/{signal_id}/reply")
+@limiter.limit("20/minute")
 async def upload_signal_reply(
-    signal_id: uuid.UUID,
     request: Request,
+    signal_id: uuid.UUID,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -222,12 +280,25 @@ async def upload_signal_reply(
 
 
 @router.get("/signal/{signal_id}/reply")
-async def serve_signal_reply(signal_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@limiter.limit("120/minute")
+async def serve_signal_reply(
+    request: Request,
+    signal_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Signal).where(Signal.id == signal_id))
+    sig = result.scalar_one_or_none()
+    if not sig:
+        raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
+    if current_user.user_id not in (sig.sender_id, sig.receiver_id):
+        raise _forbid()
+
     for ext in ALLOWED_EXTENSIONS:
         path = REPLIES_DIR / f"{signal_id}{ext}"
         if path.exists():
             media_type = "video/webm" if ext == ".webm" else "video/mp4"
-            return FileResponse(str(path), media_type=media_type)
+            return _cached_file_response(request, path, media_type)
     raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
 
 
@@ -270,6 +341,7 @@ async def _send_instant_signal(
 
 
 @router.post("/selfie")
+@limiter.limit("10/minute")
 async def upload_selfie(
     request: Request,
     file: UploadFile = File(...),
@@ -290,7 +362,18 @@ async def upload_selfie(
 
     selfie_id = uuid.uuid4()
     SELFIES_DIR.mkdir(parents=True, exist_ok=True)
-    (SELFIES_DIR / f"{selfie_id}{suffix}").write_bytes(content)
+    file_path = SELFIES_DIR / f"{selfie_id}{suffix}"
+    file_path.write_bytes(content)
+
+    media_repo = UserMediaRepository(db)
+    await media_repo.record(
+        user_id=current_user.user_id,
+        media_type="selfie",
+        file_path=str(file_path),
+        size_bytes=len(content),
+    )
+    await media_repo.enforce_quota(current_user.user_id, "selfie", SELFIE_QUOTA)
+    await db.commit()
 
     proto = request.headers.get("x-forwarded-proto", "https")
     host  = request.headers.get("x-forwarded-host", "") or request.headers.get("host", "")
@@ -306,17 +389,34 @@ async def upload_selfie(
 
 
 @router.get("/selfie/{selfie_id}")
-async def serve_selfie(selfie_id: uuid.UUID):
-    for suffix in ALLOWED_IMAGE_EXTENSIONS:
-        path = SELFIES_DIR / f"{selfie_id}{suffix}"
-        if path.exists():
-            mime_map = {".gif": "image/gif", ".png": "image/png", ".jpg": "image/jpeg",
-                        ".jpeg": "image/jpeg", ".webp": "image/webp"}
-            return FileResponse(str(path), media_type=mime_map.get(suffix, "image/jpeg"))
-    raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
+@limiter.limit("120/minute")
+async def serve_selfie(
+    request: Request,
+    selfie_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    owner_row = await UserMediaRepository(db).get_owner_by_path_prefix(
+        str(SELFIES_DIR), selfie_id
+    )
+    if not owner_row:
+        raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
+
+    partner_id = await _partner_id_for(db, current_user.user_id)
+    if owner_row.user_id != current_user.user_id and owner_row.user_id != partner_id:
+        raise _forbid()
+
+    path = Path(owner_row.file_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail={"error": "FILE_MISSING"})
+
+    mime_map = {".gif": "image/gif", ".png": "image/png", ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg", ".webp": "image/webp"}
+    return _cached_file_response(request, path, mime_map.get(path.suffix.lower(), "image/jpeg"))
 
 
 @router.post("/voice")
+@limiter.limit("10/minute")
 async def upload_voice(
     request: Request,
     file: UploadFile = File(...),
@@ -337,7 +437,18 @@ async def upload_voice(
 
     voice_id = uuid.uuid4()
     VOICES_DIR.mkdir(parents=True, exist_ok=True)
-    (VOICES_DIR / f"{voice_id}{suffix}").write_bytes(content)
+    file_path = VOICES_DIR / f"{voice_id}{suffix}"
+    file_path.write_bytes(content)
+
+    media_repo = UserMediaRepository(db)
+    await media_repo.record(
+        user_id=current_user.user_id,
+        media_type="voice",
+        file_path=str(file_path),
+        size_bytes=len(content),
+    )
+    await media_repo.enforce_quota(current_user.user_id, "voice", VOICE_QUOTA)
+    await db.commit()
 
     proto = request.headers.get("x-forwarded-proto", "https")
     host  = request.headers.get("x-forwarded-host", "") or request.headers.get("host", "")
@@ -353,18 +464,36 @@ async def upload_voice(
 
 
 @router.get("/voice/{voice_id}")
-async def serve_voice(voice_id: uuid.UUID):
+@limiter.limit("120/minute")
+async def serve_voice(
+    request: Request,
+    voice_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    owner_row = await UserMediaRepository(db).get_owner_by_path_prefix(
+        str(VOICES_DIR), voice_id
+    )
+    if not owner_row:
+        raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
+
+    partner_id = await _partner_id_for(db, current_user.user_id)
+    if owner_row.user_id != current_user.user_id and owner_row.user_id != partner_id:
+        raise _forbid()
+
+    path = Path(owner_row.file_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail={"error": "FILE_MISSING"})
+
     mime_map = {".m4a": "audio/mp4", ".aac": "audio/aac", ".mp3": "audio/mpeg",
                 ".3gp": "audio/3gpp", ".ogg": "audio/ogg", ".opus": "audio/ogg"}
-    for suffix in ALLOWED_AUDIO_EXTENSIONS:
-        path = VOICES_DIR / f"{voice_id}{suffix}"
-        if path.exists():
-            return FileResponse(str(path), media_type=mime_map.get(suffix, "audio/mp4"))
-    raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
+    return _cached_file_response(request, path, mime_map.get(path.suffix.lower(), "audio/mp4"))
 
 
 @router.post("/avatar")
+@limiter.limit("5/minute")
 async def upload_avatar(
+    request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -402,18 +531,38 @@ async def upload_avatar(
 
 
 @router.get("/avatar/{user_id}")
-async def serve_avatar(user_id: uuid.UUID):
+@limiter.limit("120/minute")
+async def serve_avatar(
+    request: Request,
+    user_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if user_id != current_user.user_id:
+        partner_id = await _partner_id_for(db, current_user.user_id)
+        if user_id != partner_id:
+            raise _forbid()
+
     for suffix in ALLOWED_AVATAR_EXTENSIONS:
         path = AVATARS_DIR / f"{user_id}{suffix}"
         if path.exists():
             mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                         ".png": "image/png", ".webp": "image/webp"}
-            return FileResponse(str(path), media_type=mime_map.get(suffix, "image/jpeg"))
+            etag = _file_etag(path)
+            if request.headers.get("if-none-match") == etag:
+                return Response(status_code=304, headers={"Cache-Control": "private, max-age=300", "ETag": etag})
+            return FileResponse(
+                str(path),
+                media_type=mime_map.get(suffix, "image/jpeg"),
+                headers={"Cache-Control": "private, max-age=300", "ETag": etag},
+            )
     raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
 
 
 @router.delete("/video/{button_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("20/minute")
 async def delete_video(
+    request: Request,
     button_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

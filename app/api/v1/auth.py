@@ -13,14 +13,18 @@ from app.schemas.auth import (
     JoinCoupleResponse,
     LoginRequest,
     LoginResponse,
+    LogoutRequest,
     MeResponse,
     PendingRequestInfo,
     RefreshFCMRequest,
+    RefreshRequest,
+    RefreshResponse,
     RegisterRequest,
     RegisterResponse,
     UpdateMeRequest,
 )
 from app.services.auth_service import AuthService
+from app.services.pairing_throttle import PairingLockedError, PairingThrottle
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -59,15 +63,56 @@ async def login(
         )
 
 
+@router.post("/refresh", response_model=RefreshResponse)
+@limiter.limit("30/minute")
+async def refresh_token(
+    request: Request,
+    body: RefreshRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await AuthService(db).refresh(body.refresh_token)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "INVALID_REFRESH_TOKEN", "message": "Refresh token inválido o expirado"},
+        )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    body: LogoutRequest | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    refresh_value = body.refresh_token if body else None
+    await AuthService(db).logout(refresh_value)
+    return None
+
+
 @router.post("/join-couple", response_model=JoinCoupleResponse)
+@limiter.limit("5/minute")
 async def join_couple(
+    request: Request,
     body: JoinCoupleRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        return await AuthService(db).join_couple(current_user.user_id, body.pairing_code)
+        await PairingThrottle.assert_not_locked(current_user.user_id)
+    except PairingLockedError:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"error": "PAIRING_LOCKED", "message": "Demasiados códigos inválidos. Probá más tarde."},
+        )
+
+    try:
+        result = await AuthService(db).join_couple(current_user.user_id, body.pairing_code)
+        await PairingThrottle.record_success(current_user.user_id)
+        return result
     except ValueError as exc:
+        if str(exc) == "INVALID_PAIRING_CODE":
+            await PairingThrottle.record_failure(current_user.user_id)
         messages = {
             "INVALID_PAIRING_CODE": "Código inválido o ya usado",
             "CANNOT_JOIN_OWN_CODE": "No puedes usar tu propio código",

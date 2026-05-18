@@ -15,6 +15,7 @@ from app.api.v1 import auth, button, couple, gallery, games, media, scheduled_si
 from app.core.middleware import RequestLoggingMiddleware
 from app.core.rate_limiter import limiter
 from app.db.init_db import init_db
+from app.services.connection_manager import manager as ws_manager
 from app.services.fcm_service import init_firebase
 from app.services.scheduler import scheduled_signals_worker
 
@@ -26,10 +27,12 @@ async def lifespan(app: FastAPI):
     logger.info("heartbeat_starting")
     await init_db()
     init_firebase()
+    await ws_manager.init()
     worker_task = asyncio.create_task(scheduled_signals_worker())
     logger.info("heartbeat_ready")
     yield
     worker_task.cancel()
+    await ws_manager.shutdown()
     logger.info("heartbeat_shutdown")
 
 
@@ -95,7 +98,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

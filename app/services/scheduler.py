@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import structlog
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.models.scheduled_signal import ScheduledSignal
 from app.models.signal import Signal
@@ -75,8 +76,12 @@ async def _fire(db, sig: ScheduledSignal) -> None:
         if btn:
             button_label = btn.label or button_label
             button_type  = btn.button_type
-            video_url    = btn.video_url or ""
             bg_color     = btn.bg_color  or ""
+            if btn.video_url:
+                if btn.video_url.startswith("http"):
+                    video_url = btn.video_url
+                else:
+                    video_url = f"{settings.PUBLIC_BASE_URL.rstrip('/')}{btn.video_url}"
 
     # Persist to signal history
     db.add(Signal(
@@ -85,6 +90,7 @@ async def _fire(db, sig: ScheduledSignal) -> None:
         button_label=button_label or None,
         button_type=button_type,
         bg_color=bg_color or None,
+        media_url=video_url or None,
     ))
     await db.flush()
 

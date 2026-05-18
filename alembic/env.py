@@ -12,6 +12,8 @@ from app.db.base import Base
 import app.models.user  # noqa: F401
 import app.models.couple  # noqa: F401
 import app.models.button  # noqa: F401
+import app.models.refresh_token  # noqa: F401
+import app.models.user_media  # noqa: F401
 
 config = context.config
 

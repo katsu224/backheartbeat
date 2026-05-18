@@ -26,7 +26,10 @@ class RefreshFCMRequest(BaseModel):
 
 class RegisterResponse(BaseModel):
     user_id: str
-    auth_token: str
+    auth_token: str  # alias of access_token, kept for backward compatibility
+    access_token: str
+    refresh_token: str
+    access_expires_in: int  # seconds until access_token expires
     pairing_code: str
     name: str
     username: str
@@ -34,15 +37,33 @@ class RegisterResponse(BaseModel):
 
 class LoginResponse(BaseModel):
     user_id: str
-    auth_token: str
+    auth_token: str  # alias of access_token, kept for backward compatibility
+    access_token: str
+    refresh_token: str
+    access_expires_in: int
     name: str
     username: str
     is_paired: bool
     pairing_code: str | None
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=1)
+
+
+class RefreshResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    access_expires_in: int
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str | None = Field(default=None)
+
+
 class JoinCoupleRequest(BaseModel):
-    pairing_code: str = Field(..., min_length=6, max_length=6)
+    # Range accepts both legacy 6-char codes and new 8-char codes during transition.
+    pairing_code: str = Field(..., min_length=6, max_length=8)
 
 
 class JoinCoupleResponse(BaseModel):
