@@ -2,7 +2,7 @@ import asyncio
 import uuid
 
 import structlog
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import verify_token
@@ -37,9 +37,10 @@ async def _get_partner_id(db: AsyncSession, user_id: uuid.UUID) -> uuid.UUID | N
 async def websocket_endpoint(
     websocket: WebSocket,
     user_id: str,
-    token: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
+    auth_header = websocket.headers.get("authorization", "")
+    token = auth_header[7:] if auth_header.lower().startswith("bearer ") else ""
     verified_id = verify_token(token)
     if not verified_id:
         await websocket.close(code=4001)
