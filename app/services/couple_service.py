@@ -146,8 +146,10 @@ class CoupleService:
         if not couple:
             raise ValueError("NOT_PAIRED")
         paired_since = couple.paired_at or couple.created_at
-        days = (datetime.now(timezone.utc) - paired_since).days
-        return {"days_together": days, "paired_since": paired_since.date()}
+        today = datetime.now(timezone.utc).date()
+        since = paired_since.date()
+        days = (today - since).days
+        return {"days_together": days, "paired_since": since}
 
     # ── UNPAIR ────────────────────────────────────────────────────────────────
 

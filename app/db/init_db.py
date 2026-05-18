@@ -8,12 +8,27 @@ logger = structlog.get_logger()
 
 
 @retry(stop=stop_after_attempt(10), wait=wait_fixed(3))
+async def _wait_for_db() -> None:
+    async with engine.begin() as conn:
+        await conn.execute(text("SELECT 1"))
+
+
 async def init_db() -> None:
-    try:
-        # Alembic maneja las migraciones, por lo que aquí solo probamos la conexión
-        async with engine.begin() as conn:
-            await conn.execute(text("SELECT 1"))
-        logger.info("database_ready")
-    except Exception as exc:
-        logger.error("database_init_failed", error=str(exc))
-        raise
+    await _wait_for_db()
+
+    async with engine.connect() as conn:
+        try:
+            row = (
+                await conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
+            ).fetchone()
+        except Exception as exc:
+            logger.error("database_migrations_missing", error=str(exc))
+            raise RuntimeError(
+                "alembic_version table not found — run 'alembic upgrade head' before starting"
+            ) from exc
+        if row is None:
+            raise RuntimeError(
+                "No Alembic migrations applied — run 'alembic upgrade head' before starting"
+            )
+
+    logger.info("database_ready")

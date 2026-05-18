@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 import structlog
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -29,7 +29,7 @@ async def send_trigger(
 ):
     couple = await CoupleRepository(db).get_by_user_id(current_user.user_id)
     if not couple:
-        return TriggerResponse(delivered=False, method="offline")
+        raise HTTPException(status_code=400, detail={"error": "NOT_PAIRED"})
 
     partner_id = (
         couple.user_b_id
@@ -37,7 +37,7 @@ async def send_trigger(
         else couple.user_a_id
     )
     if not partner_id:
-        return TriggerResponse(delivered=False, method="offline")
+        raise HTTPException(status_code=400, detail={"error": "NOT_PAIRED"})
 
     # Resolve button info
     button_label = ""

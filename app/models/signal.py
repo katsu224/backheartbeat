@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -10,6 +10,10 @@ from app.db.base import Base
 
 class Signal(Base):
     __tablename__ = "signals"
+    __table_args__ = (
+        Index("ix_signals_sender_created", "sender_id", "created_at"),
+        Index("ix_signals_receiver_created", "receiver_id", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
